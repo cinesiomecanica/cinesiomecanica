@@ -11,7 +11,10 @@ const E = DADOS.e, INFO = DADOS.info;
 /* ---------- cena ---------- */
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// versão celular: menos pixels por quadro (o celular esquenta menos e a bateria dura mais)
+const CEL = () => document.documentElement.classList.contains('cel');
+const ajustarPixels = () => renderer.setPixelRatio(Math.min(devicePixelRatio, CEL() ? 1.5 : 2));
+ajustarPixels();
 renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene(); renderer.setClearColor(0x000000, 0);   // o fundo vem do CSS (gradiente + malha)
 const cam = new THREE.PerspectiveCamera(32, 1, 0.02, 30);
@@ -29,6 +32,19 @@ for (const t of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'click', 'i
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); cam.aspect = w / h;
   cam.updateProjectionMatrix(); sujar(); }
 addEventListener('resize', resize); resize();
+// área da tela onde o modelo fica visível (descontando cabeçalho, painel e barra de abas)
+function areaLivre() {
+  const W = innerWidth, H = innerHeight;
+  if (CEL()) {
+    const p = $('painel'), aberto = p && p.classList.contains('on'), tab = ($('tabbar') && $('tabbar').offsetHeight) || 64;
+    const folha = !aberto ? 0 : p.classList.contains('min') ? 84 : Math.round(H * 0.46);
+    const topo = (($('camadas') && $('camadas').getBoundingClientRect().bottom) || 100) + 6;
+    return { x0: 0, x1: W - 58, y0: topo, y1: H - tab - folha - 8 };
+  }
+  if (W < 900) return { x0: 0, x1: W, y0: 140, y1: H * 0.5 - 66 };
+  return { x0: 0, x1: W - 430, y0: 64, y1: H - 64 };
+}
+addEventListener('versao', () => { ajustarPixels(); resize(); sujar(); });
 
 /* ---------- materiais ---------- */
 const COR = { ossos: '#e9e2d2', musculos: '#c4473c', articulacoes: '#d9c27a' };
@@ -97,7 +113,10 @@ $('camadas').addEventListener('click', async ev => {
 const anim = { de: null, ate: null, t: 1, t0: 0 };
 function voar(alvo, dist, dir = new THREE.Vector3(0.35, 0.12, 1), comPainel = true) {
   const t = new THREE.Vector3(...alvo);
-  if (comPainel && innerWidth < 900) t.y -= 0.14 * dist;      // no celular o painel cobre a metade de baixo: sobe o objeto na tela
+  if (comPainel && (CEL() || innerWidth < 900)) {   // no celular o painel cobre a parte de baixo: sobe o objeto na tela
+    const A = areaLivre(); dist *= Math.min(2.6, Math.max(1, 0.72 * innerHeight / (A.y1 - A.y0)));   // a área livre é menor: afasta a câmera para caber
+    t.y += ((A.y0 + A.y1) / 2 - innerHeight / 2) * 2 * dist * Math.tan(cam.fov * Math.PI / 360) / innerHeight;
+  }
   const p = t.clone().add(dir.clone().normalize().multiplyScalar(dist));
   anim.de = { t: ctl.target.clone(), p: cam.position.clone() }; anim.ate = { t, p }; anim.t = 0; anim.t0 = performance.now();
 }
@@ -155,7 +174,7 @@ function padrao() {
   Object.assign(visCamada, { ossos: true, musculos: true, insercoes: false, articulacoes: false });
   document.querySelectorAll('#camadas .chip').forEach(b => b.classList.toggle('on', visCamada[b.dataset.c]));
   document.querySelectorAll('#regioes .chip').forEach(b => b.classList.remove('on'));
-  fechar(); aplicarVis(); voar([0, 0.9, 0], 3.7, new THREE.Vector3(0.3, 0.1, 1), false); toast('Modelo padrão');
+  fechar(); aplicarVis(); CEL() ? enquadrarP('corpo', 'ant') : voar([0, 0.9, 0], 3.7, new THREE.Vector3(0.3, 0.1, 1), false); toast('Modelo padrão');
 }
 $('bPadrao').onclick = padrao;
 
@@ -202,7 +221,7 @@ function regiao(r) {
   if (r === 'postura') { listaPostura(); return; }
   if (r === 'movimento') { listaMov(); return; }
   limparDesvio();
-  if (r === 'corpo') { isolado = null; aplicarVis(); voar([0, 0.9, 0], 3.7, undefined, false); fechar(); return; }
+  if (r === 'corpo') { isolado = null; aplicarVis(); fechar(); CEL() ? enquadrarP('corpo', 'ant') : voar([0, 0.9, 0], 3.7, undefined, false); return; }
   const R = DADOS.regioes[r]; const itens = new Set(R.itens);
   isolado = new Set(Object.keys(E).filter(n => itens.has(E[n].b) && E[n].c === 'musculos'));
   let alvo = R.alvo;
@@ -485,8 +504,7 @@ function enquadrar() {
   b.expandByPoint(J.C.clone().applyMatrix4(S));
   for (let a = 0; a <= J.cfg.max; a += 10) for (const k of Object.keys(J.P)) b.expandByPoint(J.P[k].clone().applyMatrix4(rotacao(a)).applyMatrix4(S));
   const c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3());
-  const W = innerWidth, H = innerHeight, cel = W < 900;
-  const area = cel ? { x0: 0, x1: W, y0: 112, y1: H * 0.5 - 6 } : { x0: 0, x1: W - 430, y0: 60, y1: H - 60 };
+  const W = innerWidth, H = innerHeight, area = areaLivre();
   const t = Math.tan(cam.fov * Math.PI / 360), aw = (area.x1 - area.x0) / W, ah = (area.y1 - area.y0) / H;
   const dist = 1.12 * Math.max(sz.y / 2 / (t * ah), sz.z / 2 / (t * cam.aspect * aw)) + sz.x / 2;
   const dir = new THREE.Vector3(-1, 0.06, 0.06).normalize();
@@ -713,7 +731,7 @@ function agEnquadrar() {
   scene.updateMatrixWorld(true); const b = new THREE.Box3(); for (const lst of Object.values(AG.seg)) for (const d of lst) b.expandByObject(d.m);
   const pf = agPose(120); b.expandByPoint(pf.B.clone().setX(AG.H.x)); b.expandByPoint(pf.Hp.clone().setX(AG.H.x));
   const c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3()); sz.x = 0.3;
-  const W = innerWidth, H = innerHeight, cel = W < 900, area = cel ? { x0: 0, x1: W, y0: 112, y1: H * 0.5 - 6 } : { x0: 0, x1: W - 430, y0: 60, y1: H - 60 };
+  const W = innerWidth, H = innerHeight, area = areaLivre();
   const t = Math.tan(cam.fov * Math.PI / 360), aw = (area.x1 - area.x0) / W, ah = (area.y1 - area.y0) / H;
   const dist = 1.08 * Math.max(sz.y / 2 / (t * ah), sz.z / 2 / (t * cam.aspect * aw)) + 0.3;
   const dir = new THREE.Vector3(-1, 0.05, 0.12).normalize(), fwd = dir.clone().negate(), dr = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize(), up = new THREE.Vector3().crossVectors(dr, fwd);
@@ -1414,8 +1432,7 @@ async function peleProntaToast() {
 // enquadra a faixa do corpo na área livre da tela (acima do painel no celular, à esquerda dele no computador)
 function enquadrarP(quadro, vista, centro) {
   let [y, alt, x0 = 0] = QUADRO[quadro] || QUADRO.corpo, z0 = 0; if (centro) { x0 = centro.x; y = centro.y; z0 = centro.z; }
-  const W = innerWidth, H = innerHeight, cel = W < 900;
-  const area = cel ? { x0: 0, x1: W, y0: 140, y1: H * 0.5 - 66 } : { x0: 0, x1: W - 430, y0: 64, y1: H - 64 };
+  const W = innerWidth, H = innerHeight, area = areaLivre();
   const t = Math.tan(cam.fov * Math.PI / 360), aw = (area.x1 - area.x0) / W, ah = (area.y1 - area.y0) / H, larg = Math.max(0.62, alt * 0.48);
   const dist = 1.06 * Math.max(alt / 2 / (t * ah), larg / 2 / (t * cam.aspect * aw)) + 0.15;
   const dir = new THREE.Vector3(...VISTAS[vista] || VISTAS.lat).normalize(), fwd = dir.clone().negate(), dr = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize(), up = new THREE.Vector3().crossVectors(dr, fwd);
@@ -2152,6 +2169,78 @@ function mostrarFaseM(fa) {
     <table class="ac">${fa.mus.map(([b, tp, fn]) => `<tr><td><i class="dotp" style="background:${TIPO_C[tp][0]}"></i><b>${esc(nomePt(b))}</b>${fn ? `<br><small>${esc(fn)}</small>` : ''}</td><td>${TIPO_C[tp][1]}</td></tr>`).join('')}</table></div>`;
 }
 
+/* ---------- versão celular: abas embaixo, folha que arrasta e ferramentas na lateral ---------- */
+const TAB_DE = r => /^(ombro|cotovelo|joelho)$/.test(r) ? 'regioes' : r || 'corpo';
+function marcarTab() {
+  const on = document.querySelector('#regioes .chip.on'), t = painelAberto && !on ? $('tabbar').dataset.fixa || '' : TAB_DE(on && on.dataset.r);
+  document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.t === (t || 'corpo')));
+}
+new MutationObserver(marcarTab).observe($('regioes'), { attributes: true, subtree: true, attributeFilter: ['class'] });
+new MutationObserver(marcarTab).observe($('painel'), { attributes: true, attributeFilter: ['class'] });
+function abaRegioes() {
+  document.querySelectorAll('#regioes .chip').forEach(b => b.classList.remove('on')); limparDesvio();
+  painelP('Regiões', '<span class="tag">atlas</span>estudo por articulação', `
+    <p>Cada região isola os músculos daquela articulação e traz as fichas, os ligamentos, o movimento com ângulo e torque e as amplitudes seguras.</p>
+    <div class="lista">${Object.entries(DADOS.regioes).map(([k, R]) => `<button data-r="${k}"><i></i><span class="lnome">${esc(R.nome)}</span><span class="pl sagital">abrir</span></button>`).join('')}</div>
+    <h3>Também</h3><div class="lista"><button data-t="movimento"><i style="background:var(--ac)"></i><span class="lnome">Movimento: todas as articulações, exercícios, modo livre e marcha</span></button><button data-t="postura"><i style="background:#ff6b8b"></i><span class="lnome">Postura: desvios, cadeias, fio de prumo e ângulo Q</span></button></div>`);
+  $('tabbar').dataset.fixa = 'regioes'; marcarTab();
+// placeholder curto no celular e corpo inteiro enquadrado acima das abas
+const ajustarCel = () => { $('q').placeholder = CEL() ? 'Buscar…' : 'Buscar osso ou músculo'; if (CEL() && !painelAberto) enquadrarP('corpo', 'ant'); };
+addEventListener('versao', ajustarCel); ajustarCel();
+  $('pB').onclick = ev => { const b = ev.target.closest('button'); if (!b) return; if (b.dataset.r) regiao(b.dataset.r); else if (b.dataset.t) abrirTab(b.dataset.t); };
+}
+function abaMais() {
+  document.querySelectorAll('#regioes .chip').forEach(b => b.classList.remove('on'));
+  const cheia = !!document.fullscreenElement;
+  painelP('Mais', '<span class="tag">opções</span>', `
+    <h3>Versão</h3><p>Você está usando a <b>versão para ${CEL() ? 'celular' : 'computador'}</b>.</p>
+    <div class="acoes"><button class="pri" data-m="versao">Trocar para a versão ${CEL() ? 'do computador' : 'do celular'}</button>${document.documentElement.requestFullscreen ? `<button data-m="cheia">${cheia ? 'Sair da tela cheia' : 'Tela cheia'}</button>` : ''}<button data-m="padrao">⟲ Voltar ao modelo padrão</button></div>
+    <h3>Como usar</h3><ul>
+      <li><b>Um dedo:</b> gira o modelo. <b>Dois dedos:</b> pinça para zoom e arrasto para mover.</li>
+      <li><b>Toque</b> num osso, músculo ou ligamento para abrir a ficha.</li>
+      <li>A <b>folha de baixo</b> sobe e desce: arraste pela alça ou toque no título.</li>
+      <li>Na lateral: <b>Tirar</b> (remove estruturas com um toque), <b>Voltar</b>, <b>Padrão</b> e <b>Só direito</b>.</li>
+      <li>As <b>camadas</b> (ossos, músculos, origem e inserção, ligamentos) ficam logo abaixo do título.</li></ul>
+    <h3>Créditos</h3><p class="pnota">Modelos 3D: Z-Anatomy (CC BY-SA 4.0), a partir do BodyParts3D (DBCLS, CC BY-SA 2.1 JP).</p>`);
+  $('tabbar').dataset.fixa = 'mais'; marcarTab();
+// placeholder curto no celular e corpo inteiro enquadrado acima das abas
+const ajustarCel = () => { $('q').placeholder = CEL() ? 'Buscar…' : 'Buscar osso ou músculo'; if (CEL() && !painelAberto) enquadrarP('corpo', 'ant'); };
+addEventListener('versao', ajustarCel); ajustarCel();
+  $('pB').onclick = ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.m === 'versao') { escolherVersao(CEL() ? 'pc' : 'cel'); abaMais(); }
+    if (b.dataset.m === 'cheia') { (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}).finally(() => setTimeout(abaMais, 300)); }
+    if (b.dataset.m === 'padrao') padrao();
+  };
+}
+function abrirTab(t) {
+  delete $('tabbar').dataset.fixa;
+  if (t === 'regioes') return abaRegioes();
+  if (t === 'mais') return abaMais();
+  if (t === 'corpo') { padrao(); return marcarTab(); }
+  regiao(t);
+}
+$('tabbar').addEventListener('click', ev => { const b = ev.target.closest('button'); if (b) abrirTab(b.dataset.t); });
+// folha de baixo com três alturas: só o título, metade e quase a tela toda
+(() => {
+  const P = $('painel'), H = P.querySelector('.p-h'); let y0 = null, h0 = 0, mexeu = false;
+  const alturas = () => ({ min: 84, meio: Math.round(innerHeight * 0.46), max: Math.round(innerHeight - ($('tabbar').offsetHeight || 64) - 64) });
+  const estado = () => P.classList.contains('min') ? 'min' : P.classList.contains('max') ? 'max' : 'meio';
+  const ir = e => { P.classList.toggle('min', e === 'min'); P.classList.toggle('max', e === 'max'); P.style.height = ''; setTimeout(() => { resize(); sujar(); }, 300); };
+  H.addEventListener('pointerdown', e => { if (!CEL() || e.target.closest('#pX')) return; y0 = e.clientY; h0 = P.getBoundingClientRect().height; mexeu = false; P.style.transition = 'none'; H.setPointerCapture(e.pointerId); });
+  H.addEventListener('pointermove', e => { if (y0 == null) return; const dy = e.clientY - y0; if (Math.abs(dy) > 6) mexeu = true; if (mexeu) { const a = alturas(); P.style.height = Math.max(a.min, Math.min(a.max, h0 - dy)) + 'px'; } });
+  const fim = e => {
+    if (y0 == null) return; P.style.transition = ''; const a = alturas(), hAt = P.getBoundingClientRect().height; y0 = null;
+    if (!mexeu) return ir(estado() === 'meio' ? 'max' : 'meio');   // toque: alterna entre metade e tela cheia
+    const perto = Object.entries(a).sort((x, y) => Math.abs(x[1] - hAt) - Math.abs(y[1] - hAt))[0][0]; ir(perto);
+  };
+  H.addEventListener('pointerup', fim); H.addEventListener('pointercancel', fim);
+})();
+marcarTab();
+// placeholder curto no celular e corpo inteiro enquadrado acima das abas
+const ajustarCel = () => { $('q').placeholder = CEL() ? 'Buscar…' : 'Buscar osso ou músculo'; if (CEL() && !painelAberto) enquadrarP('corpo', 'ant'); };
+addEventListener('versao', ajustarCel); ajustarCel();
+
 /* ---------- laço ---------- */
 const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 renderer.setAnimationLoop(() => {
@@ -2165,8 +2254,8 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, cam);
 });
 // painel no celular: tocar no cabeçalho recolhe ou expande a folha
-$('painel').querySelector('.p-h').addEventListener('click', e => { if (innerWidth < 900 && !e.target.closest('#pX')) $('painel').classList.toggle('min'); });
-new MutationObserver(() => $('painel').classList.remove('min')).observe($('pT'), { childList: true, characterData: true, subtree: true });
+$('painel').querySelector('.p-h').addEventListener('click', e => { if (innerWidth < 900 && !CEL() && !e.target.closest('#pX')) $('painel').classList.toggle('min'); });
+new MutationObserver(() => $('painel').classList.remove('min', 'max')).observe($('pT'), { childList: true, characterData: true, subtree: true });
 // prepara em segundo plano os pesos que deixam os músculos acompanharem os ossos
 setTimeout(() => POSE.pele(), 1200);
 aplicarVis();
