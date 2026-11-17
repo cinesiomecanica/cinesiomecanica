@@ -81,6 +81,8 @@ body.tirar #c{cursor:crosshair}
 .pleit{margin-top:10px}.pleit td:last-child,.pleit th:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}.pleit th:last-child{font-weight:500}
 .man{display:grid;grid-template-columns:1fr 1fr;gap:8px}.man>div{background:var(--bg2);border-radius:12px;padding:9px 10px}.man b{font-size:12.5px}.man ul{margin:4px 0 0 16px;font-size:12.5px}
 @media(max-width:420px){.man{grid-template-columns:1fr}}
+.kp.mt4{grid-template-columns:repeat(auto-fit,minmax(118px,1fr));margin:8px 0}.kp.mt4 b{color:var(--ac);font-variant-numeric:tabular-nums}
+#mFase{min-height:62px}
 .aviso{font-size:12px;color:var(--ink3);line-height:1.5;margin-top:10px;border-left:2px solid var(--line);padding-left:10px}
 .dica{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom));background:#121b25e6;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:12.5px;color:var(--ink2);z-index:3;white-space:nowrap;transition:opacity .5s}
 
@@ -145,6 +147,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-off
     <button class="chip" data-r="ombro">Ombro</button>
     <button class="chip" data-r="cotovelo">Cotovelo</button>
     <button class="chip" data-r="joelho">Joelho</button>
+    <button class="chip" data-r="movimento">Movimento</button>
     <button class="chip" data-r="postura">Postura</button>
   </nav>
   <div class="busca"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>

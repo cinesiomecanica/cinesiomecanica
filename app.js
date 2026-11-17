@@ -75,7 +75,7 @@ function aplicarVis() {
     const e = E[n] || {}, c = m.userData.camada;
     let v = visCamada[c] && !oculto.has(n);
     if (MOV.on || AG.on) { m.visible = MOV.vis.has(n); continue; }
-    if (POSE.ativo && (c === 'insercoes' || c === 'articulacoes')) { m.visible = false; continue; }
+    if (window.POSE_ON && (c === 'insercoes' || c === 'articulacoes')) { m.visible = false; continue; }
     if (soDireito && e.l === 'esquerdo') v = false;
     if (isolado && c !== 'ossos' && !isolado.has(n) && !(c === 'insercoes' && filtroInsercao)) v = false;
     if (c === 'insercoes' && filtroInsercao) v = visCamada.insercoes && e.b === filtroInsercao && (!soDireito || e.l !== 'esquerdo');
@@ -83,6 +83,7 @@ function aplicarVis() {
     // mostrando origem/inserção: o músculo fica translúcido para enxergar as marcas no osso
     if (c === 'musculos') { const tr = !!filtroInsercao && e.b === filtroInsercao; if (m.material.transparent !== tr) { m.material.transparent = tr; m.material.opacity = tr ? 0.33 : 1; m.material.depthWrite = !tr; m.material.needsUpdate = true; } }
   }
+  if (window.POSE_ON) POSE.sinc();
 }
 $('camadas').addEventListener('click', async ev => {
   const b = ev.target.closest('.chip'); if (!b) return; const c = b.dataset.c;
@@ -120,7 +121,7 @@ function destacar(nome) {
 }
 const ray = new THREE.Raycaster(); const pt = new THREE.Vector2(); let down = null;
 const mirar = e => { pt.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(pt, cam); };
-const tocado = e => { mirar(e); const h = ray.intersectObjects(Object.values(CAMADAS).filter(Boolean), true).find(h => h.object.visible && h.object.isMesh); return h && h.object; };
+const tocado = e => { mirar(e); const h = ray.intersectObjects([...Object.values(CAMADAS).filter(Boolean), ...(window.POSE_ON ? POSE.alvos() : [])], true).find(h => h.object.visible && h.object.isMesh); return h && h.object; };
 canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; if (MOV.on) movDown(e); else if (AG.on) agDown(e); });
 canvas.addEventListener('pointermove', e => { if (MOV.arrastando) movMove(e); else if (AG.arrastando) agMove(e); });
 canvas.addEventListener('pointerup', e => {
@@ -199,6 +200,7 @@ function regiao(r) {
   if (MOV.on) sairMov(false); if (AG.on) sairAg(false);
   $('pB').onclick = null;
   if (r === 'postura') { listaPostura(); return; }
+  if (r === 'movimento') { listaMov(); return; }
   limparDesvio();
   if (r === 'corpo') { isolado = null; aplicarVis(); voar([0, 0.9, 0], 3.7, undefined, false); fechar(); return; }
   const R = DADOS.regioes[r]; const itens = new Set(R.itens);
@@ -736,14 +738,13 @@ function agQuadro() {
   pos('rA', AG.A, 'tornozelo ' + Math.round(p.s) + '°', -0.07); pos('rK', p.Kp, 'joelho ' + Math.round(p.k) + '°', 0.09); pos('rH', p.Hp, 'quadril ' + Math.round(p.quadril) + '°', -0.1);
 }
 
-/* ---------- desvios posturais: corpo posicionado, fios de prumo e ângulo Q ---------- */
+/* ---------- motor de pose (GPU): desvios posturais e corpo inteiro em movimento ---------- */
 const POST = DADOS.posturas; let desvioAtivo = null;
 const CORES_P = { enc: '#ff8a3d', alo: '#4dabf7', ten: '#c084fc' };
 const ROT_P = { enc: 'Encurtados', alo: 'Alongados ou enfraquecidos', ten: 'Tensionados (hiperativos)' };
 const LOCAIS = ['Pé e tornozelo', 'Joelho', 'Quadril', 'Pelve e lombar', 'Pelve e tronco', 'Coluna torácica', 'Coluna (plano frontal)', 'Cintura escapular', 'Coluna cervical', 'Padrão global do tronco superior'];
-// enquadramento [altura do alvo, distância] e direção da câmera
-const QUADRO = { pernas: [0.56, 1.22], corpo: [0.9, 1.92], tronco: [1.22, 1.0], cabeca: [1.47, 0.62] };   // [altura do centro, altura visível] em metros
-const VISTAS = { lat: [-1, 0.06, 0.14], post: [0.14, 0.08, -1], ant: [-0.22, 0.08, 1], obl: [0.8, 0.28, -1] };
+const QUADRO = { pes: [0.32, 0.78], ombro: [1.5, 1.5], pernas: [0.56, 1.22], corpo: [0.9, 1.92], alto: [1.08, 2.32], tronco: [1.22, 1.0], braco: [1.2, 1.25], cabeca: [1.47, 0.62] };   // [altura do centro, altura visível] em metros
+const VISTAS = { lat: [-1, 0.06, 0.14], post: [0.14, 0.08, -1], ant: [-0.22, 0.08, 1], obl: [0.8, 0.28, -1], frente: [-0.75, 0.16, 0.65] };
 // Pose de cada desvio no grau máximo (graus; cm em "dentro", "tras", "comp" e "elev"). col: [flexão(+)/extensão(-), inclinação lateral, rotação axial] somados na região.
 const POSES = {
   'pe-plano': { pe: { ev: 10, abd: 6 }, perna: { tibRot: 7, femRot: 4, dentro: 1.2 }, pelve: { ant: 3 }, col: { lum: [-3] }, fer: ['post', 'q'], vista: 'post', quadro: 'pernas' },
@@ -766,15 +767,87 @@ const POSES = {
 };
 const FER_N = { lat: 'Prumo lateral', post: 'Prumo posterior', q: 'Ângulo Q' };
 
+// Pesos de pele (quanto cada vértice de músculo segue cada osso). Roda num Web Worker; o código vai para o worker pelo toString().
+function* pesosGen(d) {
+  const { px, py, pz, ps, cel, nseg, FY, malhas, segs } = d, U = FY.length - 1, mapa = new Map();
+  const chave = (a, b, c) => (a + 512) | ((b + 512) << 10) | ((c + 512) << 20);
+  for (let q = 0; q < px.length; q++) { const k = chave(Math.floor(px[q] / cel), Math.floor(py[q] / cel), Math.floor(pz[q] / cel)); let a = mapa.get(k); if (!a) mapa.set(k, a = []); a.push(q); }
+  // cadeias dos membros: nível de cada segmento (escápula e clavícula → úmero → antebraço; pelve → coxa → perna → pé → dedos)
+  const NIVEL = { esc: 0, cla: 0, umero: 1, antebraco: 2, coxa: 1, perna: 2, pe: 3, dedos: 4 };
+  const info = ['campo', ...segs].map(n => { if (n === 'pelve') return { t: 'membro', c: '*', n: 0 }; const m = /^(esc|cla|umero|antebraco|coxa|perna|pe|dedos)([de])$/.exec(n); if (!m) return { t: 'tronco' }; return { t: 'membro', c: (m[1] === 'esc' || m[1] === 'cla' || m[1] === 'umero' || m[1] === 'antebraco' ? 'b' : 'p') + m[2], n: NIVEL[m[1]] }; });
+  const melhor = new Float32Array(nseg + 1), lista = [], cb = new Int16Array(16), cp = new Float32Array(16), livre = new Uint8Array(nseg + 1); let nc = 0;
+  const add = (b, p) => { if (p <= 1e-6) return; for (let t = 0; t < nc; t++) if (cb[t] === b) { cp[t] += p; return; } if (nc < 16) { cb[nc] = b; cp[nc++] = p; } };
+  let fj = 0, ff = 0;
+  const campoAdd = p => { add(nseg + fj, p * (1 - ff)); add(nseg + fj + 1, p * ff); };
+  const seg1 = (s, p) => s === 0 ? campoAdd(p) : add(s - 1, p);
+  // ossos mais próximos do ponto (só entre os segmentos liberados); escala tudo por "peso"
+  function prox(x, y, z, peso, filtro) {
+    const ix = Math.floor(x / cel), iy = Math.floor(y / cel), iz = Math.floor(z / cel); lista.length = 0;
+    for (const r of [1, 2, 4]) {
+      for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) for (let c = -r; c <= r; c++) {
+        const arr = mapa.get(chave(ix + a, iy + b, iz + c)); if (!arr) continue;
+        for (let t = 0; t < arr.length; t++) { const q = arr[t], s = ps[q]; if (filtro && !livre[s]) continue; const dx = px[q] - x, dy = py[q] - y, dz = pz[q] - z, d2 = dx * dx + dy * dy + dz * dz + 1e-9; if (melhor[s] === 0) { lista.push(s); melhor[s] = d2; } else if (d2 < melhor[s]) melhor[s] = d2; }
+      }
+      if (lista.length) break;
+    }
+    if (!lista.length) { if (filtro) return prox(x, y, z, peso, false); campoAdd(peso); return; }
+    lista.sort((a, b) => melhor[a] - melhor[b]); const lim = (2.2 * Math.sqrt(melhor[lista[0]]) + 0.012) ** 2, sel = [], pw = []; let tot = 0;
+    for (const s of lista) { if (sel.length < 3 && melhor[s] <= lim) { const p = 1 / (melhor[s] + 4e-5) ** 2; sel.push(s); pw.push(p); tot += p; } melhor[s] = 0; }
+    for (let k = 0; k < sel.length; k++) seg1(sel[k], peso * pw[k] / tot);
+  }
+  function maisPerto(x, y, z) { prox(x, y, z, 1, false); let m = -1, best = -1; for (let t = 0; t < nc; t++) if (cp[t] > best) { best = cp[t]; m = cb[t]; } nc = 0; return m >= nseg ? 0 : m + 1; }
+  const suave = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let mi = 0; mi < malhas.length; mi++) {
+    const { id, w, campo } = malhas[mi], n = w.length / 3, idx = new Uint8Array(n * 4), wt = new Float32Array(n * 4);
+    // eixo mais longo do músculo e os ossos em cada ponta
+    let modo = 'prox', ax = 1, lo = 0, hi = 1, sA = 0, sB = 0;
+    if (!campo) {
+      const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+      for (let i = 0; i < n; i++) for (let a = 0; a < 3; a++) { const v = w[3 * i + a]; if (v < mn[a]) mn[a] = v; if (v > mx[a]) mx[a] = v; }
+      ax = [0, 1, 2].reduce((a, b) => (mx[b] - mn[b] > mx[a] - mn[a] ? b : a), 0); lo = mn[ax]; hi = mx[ax];
+      const votos = [new Map(), new Map()], passo = Math.max(1, Math.floor(n / 600));
+      for (let i = 0; i < n; i += passo) { const s = (w[3 * i + ax] - lo) / (hi - lo || 1), e = s < 0.12 ? 0 : s > 0.88 ? 1 : -1; if (e < 0) continue; const y = w[3 * i + 1]; fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); } const sg = maisPerto(w[3 * i], y, w[3 * i + 2]); votos[e].set(sg, (votos[e].get(sg) || 0) + 1); }
+      const top = m => { let b = 0, c = -1; for (const [s, v] of m) if (v > c) { c = v; b = s; } return b; };
+      sA = top(votos[0]); sB = top(votos[1]); const A = info[sA], B = info[sB];
+      livre.fill(0);
+      if (A.t === 'membro' && B.t === 'membro' && (A.c === B.c || A.c === '*' || B.c === '*')) {
+        const ca = A.c === '*' ? B.c : A.c, dif = Math.abs(A.n - B.n);
+        if (sA === sB) modo = 'rigido';
+        else if (dif <= 1) modo = 'eixo';
+        else { modo = 'cadeia'; const n0 = Math.min(A.n, B.n), n1 = Math.max(A.n, B.n); info.forEach((f, s) => { if (f.t === 'membro' && (f.c === ca || f.c === '*') && f.n >= n0 && f.n <= n1) livre[s] = 1; }); }
+      } else if (A.t !== B.t) { modo = 'misto'; info.forEach((f, s) => { if (f.t === 'tronco') livre[s] = 1; }); if (A.t === 'membro') { const t = sA; sA = sB; sB = t; lo = hi + (hi = lo, 0); } }
+    }
+    for (let i = 0; i < n; i++) {
+      const x = w[3 * i], y = w[3 * i + 1], z = w[3 * i + 2]; nc = 0;
+      fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); }
+      if (campo) campoAdd(1);
+      else if (modo === 'rigido') seg1(sA, 1);
+      else if (modo === 'cadeia') prox(x, y, z, 1, true);
+      else {
+        const sv = (w[3 * i + ax] - lo) / (hi - lo || 1), wb = suave(0.3, 0.72, sv);
+        if (modo === 'eixo') { seg1(sA, 1 - wb); seg1(sB, wb); }
+        else if (modo === 'misto') { const wm = suave(0.55, 0.93, sv); prox(x, y, z, 1 - wm, true); seg1(sB, wm); }   // ponta no tronco segue a coluna; ponta no membro segue o osso
+        else prox(x, y, z, 1, false);
+      }
+      let tot = 0;
+      for (let k = 0; k < 4; k++) { let m = -1; for (let t = 0; t < nc; t++) if (cp[t] > 0 && (m < 0 || cp[t] > cp[m])) m = t; if (m < 0) break; idx[4 * i + k] = cb[m]; wt[4 * i + k] = cp[m]; tot += cp[m]; cp[m] = -1; }
+      for (let k = 0; k < 4; k++) wt[4 * i + k] /= tot || 1;
+    }
+    yield { id, idx, wt, prog: (mi + 1) / malhas.length };
+  }
+}
+
 const POSE = (() => {
   const V3 = THREE.Vector3, M4 = THREE.Matrix4, RAD = Math.PI / 180;
   const rX = a => new M4().makeRotationX(a * RAD), rY = a => new M4().makeRotationY(a * RAD), rZ = a => new M4().makeRotationZ(a * RAD);
   const tra = (a, b) => new M4().makeTranslation(a.x - (b ? b.x : 0), a.y - (b ? b.y : 0), a.z - (b ? b.z : 0));
-  const em = (p, R) => tra(p).multiply(R).multiply(new M4().makeTranslation(-p.x, -p.y, -p.z));   // rotação R em torno do ponto p
+  const neg = p => new M4().makeTranslation(-p.x, -p.y, -p.z);
+  const em = (p, R) => tra(p).multiply(R).multiply(neg(p));   // rotação R em torno do ponto p
   const NIV = [...[5, 4, 3, 2, 1].map(i => 'Vertebra L' + i), ...[12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map(i => 'Vertebra T' + i), ...[7, 6, 5, 4, 3].map(i => 'Vertebra C' + i), 'Axis (C2)', 'Atlas (C1)'];
   const REG = { lum: [0, 5], torI: [5, 6], torS: [11, 6], cerI: [17, 5], cerS: [22, 3] };   // [primeiro nível, nº de articulações]
   const LADOS = [['d', '.r', 1], ['e', '.l', -1]];   // sg = +1 no lado direito (x negativo no modelo)
-  const S = { pronto: false, ativo: false, k: 0, def: {}, fer: new Set(), rig: [], campo: [], soft: new Map(), ligados: [], anim: null, mk: {}, A: {}, K: {}, H: {}, G: {}, Cs: {}, sc: {}, ac: {}, aoMudar: null };
+  const S = { pronto: false, ativo: false, k: 0, def: {}, gen: null, fer: new Set(), rig: [], campo: [], anim: null, mk: {}, A: {}, K: {}, H: {}, G: {}, Cs: {}, sc: {}, ac: {}, Hh: {}, Co: {}, MTP: {},
+    pesos: new Map(), clones: new Map(), usar: new Set(), ang: {}, aoMudar: null, rotExtra: null };
 
   /* --- geometria em coordenadas do mundo (vetores tipados) --- */
   function mundo(m) {
@@ -786,19 +859,21 @@ const POSE = (() => {
   const faixa = (w, ax) => { let a = 1e9, b = -1e9; for (let i = ax; i < w.length; i += 3) { if (w[i] < a) a = w[i]; if (w[i] > b) b = w[i]; } return [a, b]; };
   const meio = w => { const a = faixa(w, 0), b = faixa(w, 1), c = faixa(w, 2); return new V3((a[0] + a[1]) / 2, (b[0] + b[1]) / 2, (c[0] + c[1]) / 2); };
   const mediaSe = (w, f) => { let x = 0, y = 0, z = 0, c = 0; for (let i = 0; i < w.length; i += 3) if (f(w[i], w[i + 1], w[i + 2])) { x += w[i]; y += w[i + 1]; z += w[i + 2]; c++; } return c ? new V3(x / c, y / c, z / c) : meio(w); };
-  // ponto extremo num eixo (sinal +1 = máximo, -1 = mínimo): média dos vértices a até `tol` do extremo
   const ponta = (w, ax, sinal, tol, f = () => true) => { let e = -1e9; for (let i = 0; i < w.length; i += 3) if (f(w[i], w[i + 1], w[i + 2])) { const v = sinal * w[i + ax]; if (v > e) e = v; } return mediaSe(w, (x, y, z) => f(x, y, z) && sinal * (ax === 0 ? x : ax === 1 ? y : z) >= e - tol); };
   const um = b => Object.keys(MESH).find(n => E[n].c === 'ossos' && E[n].b === b);
   const osso = (b, suf) => MESH[b + suf] ? b + suf : um(b);
+  // cabeça do úmero ou do fêmur: centro da parte mais alta e mais medial do osso
+  const cabeca = w => { const [, y1] = faixa(w, 1); let sx = 0, c = 0; for (let i = 0; i < w.length; i += 3) if (w[i + 1] > y1 - 0.045) { sx += Math.abs(w[i]); c++; } const p = mediaSe(w, (x, y) => y > y1 - 0.045 && Math.abs(x) < sx / c); p.y = y1 - 0.024; return p; };
 
   function segDe(n) {
     const b = E[n].b, l = E[n].l === 'direito' ? 'd' : E[n].l === 'esquerdo' ? 'e' : '';
     if (/^(Hip bone|Sacrum|Coccyx)$/.test(b)) return 'pelve';
     if (/^(Femur|Patella)$/.test(b)) return 'coxa' + l;
     if (/^(Tibia|Fibula)$/.test(b)) return 'perna' + l;
-    if (SEG_RE.pe.test(b)) return 'pe' + l;
+    if (SEG_RE.pe.test(b)) return (/phalanx/.test(b) ? 'dedos' : 'pe') + l;
     if (b === 'Scapula') return 'esc' + l; if (b === 'Clavicle') return 'cla' + l;
-    if (SEG_RE.braco.test(b)) return 'braco' + l;
+    if (b === 'Humerus') return 'umero' + l;
+    if (SEG_RE.braco.test(b)) return 'antebraco' + l;
     if (/^Vertebra |^Atlas|^Axis/.test(b)) return 'v:' + b;
     if (/rib|sternum|Xiphoid|Hyoid|Thyroid|Cricoid|Arytenoid|Corniculate/.test(b)) return null;   // tronco flexível: segue a coluna pela altura
     return 'cabeca';
@@ -809,12 +884,12 @@ const POSE = (() => {
     const mk = (id, p, seg) => { S.mk[id] = { r: p, seg, p: p.clone() }; };
     S.chao = faixa(W('Calcaneus.r'), 1)[0];
     for (const [l, suf, sg] of LADOS) {
-      const lat = -sg, tib = W('Tibia' + suf), fem = W('Femur' + suf), fib = W('Fibula' + suf), esc = W('Scapula' + suf), cla = W('Clavicle' + suf), qd = W('Hip bone' + suf);
-      const [ty0, ty1] = faixa(tib, 1), [fy0, fy1] = faixa(fem, 1), fb0 = faixa(fib, 1)[0], ey1 = faixa(esc, 1)[1];
+      const lat = -sg, tib = W('Tibia' + suf), fem = W('Femur' + suf), fib = W('Fibula' + suf), esc = W('Scapula' + suf), cla = W('Clavicle' + suf), qd = W('Hip bone' + suf), hum = W('Humerus' + suf);
+      const [ty0, ty1] = faixa(tib, 1), [fy0, fy1] = faixa(fem, 1), fb0 = faixa(fib, 1)[0], ey1 = faixa(esc, 1)[1], hy0 = faixa(hum, 1)[0];
       const A = mediaSe(tib, (x, y) => y < ty0 + 0.015); A.y = ty0 + 0.012; S.A[l] = A;
       const K = mediaSe(fem, (x, y) => y < fy0 + 0.03); K.y = fy0 + 0.022; S.K[l] = K;
-      let sx = 0, c = 0; for (let i = 0; i < fem.length; i += 3) if (fem[i + 1] > fy1 - 0.05) { sx += Math.abs(fem[i]); c++; }
-      const H = mediaSe(fem, (x, y) => y > fy1 - 0.05 && Math.abs(x) < sx / c); H.y = fy1 - 0.024; S.H[l] = H;
+      const H = cabeca(fem); S.H[l] = H; S.Hh[l] = cabeca(hum);
+      const Co = mediaSe(hum, (x, y) => y < hy0 + 0.022); Co.y = hy0 + 0.011; S.Co[l] = Co;
       mk('mal_' + l, mediaSe(fib, (x, y) => y < fb0 + 0.015), 'perna' + l); mk('joe_' + l, K.clone(), 'coxa' + l);
       mk('troc_' + l, ponta(fem, 0, lat, 0.006, (x, y) => y > fy1 - 0.12), 'coxa' + l);
       mk('acr_' + l, ponta(esc, 0, lat, 0.008, (x, y) => y > ey1 - 0.04), 'esc' + l);
@@ -824,118 +899,142 @@ const POSE = (() => {
       mk('asis_' + l, ponta(qd, 2, 1, 0.005, (x, y) => y > H.y + 0.05), 'pelve'); mk('cri_' + l, ponta(qd, 1, 1, 0.006), 'pelve');
       mk('pat_' + l, meio(W('Patella' + suf)), 'coxa' + l);
       mk('tt_' + l, ponta(tib, 2, 1, 0.004, (x, y) => y < ty1 - 0.03 && y > ty1 - 0.075), 'perna' + l);
+      mk('cot_' + l, Co.clone(), 'umero' + l); mk('omb_' + l, S.Hh[l].clone(), 'umero' + l); mk('qua_' + l, H.clone(), 'coxa' + l);
     }
+    S.Sm = S.Hh.d.clone().add(S.Hh.e).multiplyScalar(0.5);
     const esp = n => ponta(W(n), 2, -1, 0.004);
     mk('occ', ponta(W(osso('Occipital bone', '')), 2, -1, 0.005), 'cabeca'); mk('c7', esp('Vertebra C7'), 'v:Vertebra C7'); mk('t7', esp('Vertebra T7'), 'v:Vertebra T7');
     mk('l3p', esp('Vertebra L3'), 'v:Vertebra L3'); mk('sac', ponta(W(um('Sacrum')), 2, -1, 0.006), 'pelve');
-    // coluna: centro e pivô de cada nível (L5 … C1) e da cabeça
     const cen = NIV.map(n => { const w = W(n), c = meio(w); c.z = faixa(w, 2)[1] - 0.018; return c; });
     S.piv = cen.map((c, i) => i ? c.clone().add(cen[i - 1]).multiplyScalar(0.5) : c.clone().sub(cen[1].clone().sub(c).multiplyScalar(0.5)));
     S.piv.push(cen[23].clone().add(new V3(0, 0.012, 0)));
     mk('l3', cen[2].clone(), 'v:Vertebra L3');
     const ys = meio(W(um('Sacrum'))).y; S.FY = [Math.min(ys, cen[0].y - 0.04), ...cen.map(c => c.y), cen[23].y + 0.035];
     S.Ct = new V3(0, S.Cs.d.y, cen[13].z + 0.07);   // eixo vertical do tórax, na altura de T4
-    // ossos rígidos por segmento e ossos do tronco flexível
     const nomes = new Set();
     for (const [n, m] of Object.entries(MESH)) {
       if (m.userData.camada !== 'ossos') continue; const seg = segDe(n);
       if (seg) { m.updateWorldMatrix(true, false); S.rig.push({ m, seg, M0: m.matrixWorld.clone(), Pi: m.parent.matrixWorld.clone().invert() }); nomes.add(seg); }
       else S.campo.push(n);
     }
+    for (const [l, suf] of LADOS) {   // articulação metatarsofalângica: base das falanges proximais, no chão
+      let z0 = 1e9; for (const r of S.rig) if (r.seg === 'dedos' + l && /Proximal/.test(E[r.m.name].b)) z0 = Math.min(z0, faixa(W(r.m.name), 2)[0]);
+      S.MTP[l] = new V3(S.A[l].x, S.chao + 0.012, (z0 < 1e8 ? z0 : S.A[l].z + 0.14) + 0.006);
+    }
     S.SEGN = [...nomes]; const idx = Object.fromEntries(S.SEGN.map((s, i) => [s, i]));
-    // grade espacial com amostras dos ossos (para ligar cada vértice de músculo ao osso mais próximo)
-    const cel = 0.03, mapa = new Map(), px = [], py = [], pz = [], ps = [];
-    const semear = (n, s) => { const w = W(n); for (let i = 0; i < w.length; i += 9) { const k = (Math.floor(w[i] / cel) + 512) | ((Math.floor(w[i + 1] / cel) + 512) << 10) | ((Math.floor(w[i + 2] / cel) + 512) << 20); let a = mapa.get(k); if (!a) mapa.set(k, a = []); a.push(px.length); px.push(w[i]); py.push(w[i + 1]); pz.push(w[i + 2]); ps.push(s); } };
+    // esqueleto de "ossos virtuais" para a GPU: um por segmento rígido e um por nível da coluna (tronco flexível)
+    S.bones = [...S.SEGN, ...S.FY.map((_, j) => 'campo' + j)].map(() => { const b = new THREE.Bone(); b.matrixAutoUpdate = false; b.matrixWorldAutoUpdate = false; return b; });
+    S.esq = new THREE.Skeleton(S.bones, S.bones.map(() => new M4()));
+    S.grupoPele = new THREE.Group(); scene.add(S.grupoPele);
+    const cel = 0.03, px = [], py = [], pz = [], ps = [];
+    const semear = (n, s) => { const w = W(n); for (let i = 0; i < w.length; i += 9) { px.push(w[i]); py.push(w[i + 1]); pz.push(w[i + 2]); ps.push(s); } };
     for (const r of S.rig) semear(r.m.name, idx[r.seg] + 1); for (const n of S.campo) semear(n, 0);
-    S.grade = { cel, mapa, px: Float32Array.from(px), py: Float32Array.from(py), pz: Float32Array.from(pz), ps: Int16Array.from(ps), melhor: new Float32Array(S.SEGN.length + 1) };
-    for (const n of S.campo) S.soft.set(n, prepSoft(MESH[n], true));
+    S.grade = { cel, px: Float32Array.from(px), py: Float32Array.from(py), pz: Float32Array.from(pz), ps: Int16Array.from(ps) };
     montarFerr(); S.pronto = true;
     S.k = 0; S.def = {}; calc(); marcos(); S.q0 = { d: anguloQ('d'), e: anguloQ('e') };
   }
 
-  /* --- malhas flexíveis: costelas, esterno e músculos (cada vértice segue os ossos vizinhos) --- */
-  function prepSoft(m, soCampo) {
-    const w0 = mundo(m), n = w0.length / 3, fi = new Uint8Array(n), ff = new Float32Array(n), FY = S.FY, U = FY.length - 1;
-    for (let i = 0; i < n; i++) { const y = w0[3 * i + 1]; let j = 0; if (y >= FY[U]) { j = U - 1; ff[i] = 1; } else if (y > FY[0]) { while (y >= FY[j + 1]) j++; ff[i] = (y - FY[j]) / (FY[j + 1] - FY[j]); } fi[i] = j; }
-    let ws = null, ww = null;
-    if (!soCampo) {
-      ws = new Int16Array(n * 3).fill(-1); ww = new Float32Array(n * 3);
-      const { cel, mapa, px, py, pz, ps, melhor } = S.grade, lista = [];
-      for (let i = 0; i < n; i++) {
-        const x = w0[3 * i], y = w0[3 * i + 1], z = w0[3 * i + 2], ix = Math.floor(x / cel) + 512, iy = Math.floor(y / cel) + 512, iz = Math.floor(z / cel) + 512; lista.length = 0;
-        for (const r of [1, 2, 4]) {
-          for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) for (let c = -r; c <= r; c++) {
-            const arr = mapa.get((ix + a) | ((iy + b) << 10) | ((iz + c) << 20)); if (!arr) continue;
-            for (const q of arr) { const dx = px[q] - x, dy = py[q] - y, dz = pz[q] - z, d2 = dx * dx + dy * dy + dz * dz + 1e-9, s = ps[q]; if (melhor[s] === 0) { lista.push(s); melhor[s] = d2; } else if (d2 < melhor[s]) melhor[s] = d2; }
-          }
-          if (lista.length) break;
-        }
-        if (!lista.length) { ws[3 * i] = 0; ww[3 * i] = 1; continue; }
-        lista.sort((a, b) => melhor[a] - melhor[b]); const dmin = Math.sqrt(melhor[lista[0]]), lim = (2.2 * dmin + 0.012) ** 2; let tot = 0, c = 0;
-        for (const s of lista) { if (c < 3 && melhor[s] <= lim) { const p = 1 / (melhor[s] + 4e-5) ** 2; ws[3 * i + c] = s; ww[3 * i + c] = p; tot += p; c++; } melhor[s] = 0; }
-        for (let k = 0; k < c; k++) ww[3 * i + k] /= tot;
-      }
-    }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(w0), 3)); if (m.geometry.index) g.setIndex(m.geometry.index); g.computeVertexNormals();
-    return { m, w0, ws, ww, fi, ff, g, g0: m.geometry, Pi: m.parent.matrixWorld.clone().invert() };
+  /* --- pesos de pele: em segundo plano, uma vez por visita --- */
+  function pele(onProg) {
+    if (onProg) S.onProg = onProg;
+    if (S.pele) return S.pele;
+    preparar();
+    const nomes = [...S.campo, ...Object.keys(MESH).filter(n => MESH[n].userData.camada === 'musculos')], campo = new Set(S.campo);
+    const dados = () => ({ ...S.grade, segs: S.SEGN, nseg: S.SEGN.length, FY: S.FY, malhas: nomes.map(n => ({ id: n, w: mundo(MESH[n]), campo: campo.has(n) })) });
+    S.pele = new Promise(ok => {
+      const receber = r => { S.pesos.set(r.id, r); S.prog = r.prog; if (S.onProg) S.onProg(r.prog); };
+      const fim = () => { S.peleOk = true; S.onProg = null; ok(); };
+      const naPagina = () => { S.pesos.clear(); const it = pesosGen(dados()); const passo = () => { const t0 = performance.now(); let r = it.next(); while (!r.done) { receber(r.value); if (performance.now() - t0 > 14) return setTimeout(passo, 0); r = it.next(); } fim(); }; passo(); };
+      let wk = null;
+      try { wk = new Worker(URL.createObjectURL(new Blob([`const pesosGen = ${pesosGen.toString()};\nonmessage = e => { for (const r of pesosGen(e.data)) postMessage(r, [r.idx.buffer, r.wt.buffer]); postMessage({ fim: true }); };`], { type: 'text/javascript' }))); } catch (e) { wk = null; }
+      if (!wk) return naPagina();
+      wk.onmessage = e => { if (e.data.fim) { wk.terminate(); fim(); } else receber(e.data); };
+      wk.onerror = () => { wk.terminate(); naPagina(); };
+      const d = dados(); wk.postMessage(d, d.malhas.map(m => m.w.buffer));
+    });
+    return S.pele;
   }
-  function deformar(s, fim) {
-    const p = s.g.attributes.position.array, w0 = s.w0, n = w0.length / 3, FM = S.FM, ME = S.ME, { ws, ww, fi, ff } = s;
-    for (let i = 0; i < n; i++) {
-      const x = w0[3 * i], y = w0[3 * i + 1], z = w0[3 * i + 2]; let ox = 0, oy = 0, oz = 0;
-      for (let k = 0; k < 3; k++) {
-        let p1 = 1, sg = 0; if (ws) { sg = ws[3 * i + k]; if (sg < 0) break; p1 = ww[3 * i + k]; }
-        if (sg === 0) {   // campo da coluna: mistura dos dois níveis vizinhos pela altura
-          const a = FM[fi[i]], b = FM[fi[i] + 1], f = ff[i] * p1, g = p1 - f;
-          ox += g * (a[0] * x + a[4] * y + a[8] * z + a[12]) + f * (b[0] * x + b[4] * y + b[8] * z + b[12]);
-          oy += g * (a[1] * x + a[5] * y + a[9] * z + a[13]) + f * (b[1] * x + b[5] * y + b[9] * z + b[13]);
-          oz += g * (a[2] * x + a[6] * y + a[10] * z + a[14]) + f * (b[2] * x + b[6] * y + b[10] * z + b[14]);
-        } else { const a = ME[sg - 1]; ox += p1 * (a[0] * x + a[4] * y + a[8] * z + a[12]); oy += p1 * (a[1] * x + a[5] * y + a[9] * z + a[13]); oz += p1 * (a[2] * x + a[6] * y + a[10] * z + a[14]); }
-        if (!ws) break;
-      }
-      p[3 * i] = ox; p[3 * i + 1] = oy; p[3 * i + 2] = oz;
-    }
-    s.g.attributes.position.needsUpdate = true; if (fim) { s.g.computeVertexNormals(); s.g.computeBoundingSphere(); s.g.computeBoundingBox(); }
+  // cópia do músculo (ou costela) que a GPU deforma; o original fica escondido enquanto o motor está ativo
+  function clonar(n) {
+    let c = S.clones.get(n); if (c) return c;
+    const r = S.pesos.get(n), m = MESH[n]; if (!r || !m) return null;
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(mundo(m), 3));
+    const nm = m.geometry.attributes.normal;
+    if (nm) { const N = new THREE.Matrix3().getNormalMatrix(m.matrixWorld), v = new V3(), a = new Float32Array(nm.count * 3); for (let i = 0; i < nm.count; i++) { v.set(nm.getX(i), nm.getY(i), nm.getZ(i)).applyMatrix3(N).normalize(); a[3 * i] = v.x; a[3 * i + 1] = v.y; a[3 * i + 2] = v.z; } g.setAttribute('normal', new THREE.BufferAttribute(a, 3)); }
+    if (m.geometry.index) g.setIndex(m.geometry.index); if (!nm) g.computeVertexNormals();
+    g.setAttribute('skinIndex', new THREE.BufferAttribute(r.idx, 4)); g.setAttribute('skinWeight', new THREE.BufferAttribute(r.wt, 4));
+    c = new THREE.SkinnedMesh(g, m.material); c.bind(S.esq, new M4()); c.frustumCulled = false; c.name = n; c.visible = false; c.userData.camada = m.userData.camada;
+    S.grupoPele.add(c); S.clones.set(n, c); return c;
   }
-  const campoPt = p => { const FY = S.FY, U = FY.length - 1; let j = 0, f = 0; if (p.y >= FY[U]) { j = U - 1; f = 1; } else if (p.y > FY[0]) { while (p.y >= FY[j + 1]) j++; f = (p.y - FY[j]) / (FY[j + 1] - FY[j]); }
-    const a = new V3().copy(p).applyMatrix4(new M4().fromArray(S.FM[j])), b = new V3().copy(p).applyMatrix4(new M4().fromArray(S.FM[j + 1])); return a.lerp(b, f); };
 
   /* --- cinemática: dos pés (fixos no chão) para cima --- */
   function calc() {
-    const k = S.k, d = S.def, M = {}, Hn = {};
+    const d = S.gen ? S.gen(S.k) : S.def, k = S.gen ? 1 : S.k, mv = d.mov || {}, M = {}, Hn = {}, I = new M4(), A = S.ang;
     const g = (grp, key, l) => { const o = d[grp]; if (!o || (o.lado && l && o.lado !== l)) return 0; let v = o[key]; if (v && typeof v === 'object') v = v[l]; return (v || 0) * k; };
     for (const [l, , sg] of LADOS) {
-      const A = S.A[l], K = S.K[l], H = S.H[l], Ls = K.y - A.y, lean = g('perna', 'inclina', l);
-      const gS = -Math.asin(sg * g('perna', 'dentro', l) / 100 / Ls) / RAD, tS = lean + Math.asin(-g('perna', 'tras', l) / 100 / Ls) / RAD;
-      const Ms = em(A, rZ(gS).multiply(rX(tS)).multiply(rY(sg * g('perna', 'tibRot', l)))), K2 = K.clone().applyMatrix4(Ms);
-      const v = H.clone().sub(K), rxy = Math.hypot(v.x, v.y), ryz = Math.hypot(v.z, v.y);   // a coxa devolve o quadril para cima do tornozelo
-      const gT = (Math.atan2(v.x, v.y) - Math.asin((H.x - K2.x) / rxy)) / RAD, tT = (Math.asin((H.z + (H.y - A.y) * Math.sin(lean * RAD) - K2.z) / ryz) - Math.atan2(v.z, v.y)) / RAD;
-      const Mc = tra(K2, K).multiply(em(K, rX(tT).multiply(rZ(gT)).multiply(rY(sg * g('perna', 'femRot', l)))));
-      const Mp = em(A, rZ(-sg * g('pe', 'ev', l)).multiply(rY(-sg * g('pe', 'abd', l))));
-      const comp = g('perna', 'comp', l) / 100;   // perna mais longa: estica o membro a partir do chão
-      if (comp) { const Sc = em(new V3(0, S.chao, 0), new M4().makeScale(1, 1 + comp / (H.y - S.chao), 1)); Ms.premultiply(Sc); Mc.premultiply(Sc); Mp.premultiply(Sc); }
-      M['perna' + l] = Ms; M['coxa' + l] = Mc; M['pe' + l] = Mp; Hn[l] = H.clone().applyMatrix4(Mc);
+      const Aa = S.A[l], K = S.K[l], H = S.H[l]; let Ms, Mc, Mp;
+      if (mv.agach) {   // agachamento: canela avança até o limite do tornozelo, o resto vem da coxa
+        const s = Math.min(mv.mob ?? 35, 0.4 * mv.agach), t = mv.agach - s; A.s = s; A.t = t;
+        Ms = em(Aa, rX(s)); const K2 = K.clone().applyMatrix4(Ms); Mc = tra(K2).multiply(rX(-t)).multiply(neg(K)); Mp = new M4();
+      } else {
+        const Ls = K.y - Aa.y, lean = g('perna', 'inclina', l);
+        const gS = -Math.asin(sg * g('perna', 'dentro', l) / 100 / Ls) / RAD, tS = lean + Math.asin(-g('perna', 'tras', l) / 100 / Ls) / RAD;
+        Ms = em(Aa, rZ(gS).multiply(rX(tS)).multiply(rY(sg * g('perna', 'tibRot', l)))); const K2 = K.clone().applyMatrix4(Ms);
+        const v = H.clone().sub(K), rxy = Math.hypot(v.x, v.y), ryz = Math.hypot(v.z, v.y);   // a coxa devolve o quadril para cima do tornozelo
+        const gT = (Math.atan2(v.x, v.y) - Math.asin((H.x - K2.x) / rxy)) / RAD, tT = (Math.asin((H.z + (H.y - Aa.y) * Math.sin(lean * RAD) - K2.z) / ryz) - Math.atan2(v.z, v.y)) / RAD;
+        Mc = tra(K2, K).multiply(em(K, rX(tT).multiply(rZ(gT)).multiply(rY(sg * g('perna', 'femRot', l)))));
+        Mp = em(Aa, rZ(-sg * g('pe', 'ev', l)).multiply(rY(-sg * g('pe', 'abd', l))));
+        const comp = g('perna', 'comp', l) / 100;   // perna mais longa: estica o membro a partir do chão
+        if (comp) { const Sc = em(new V3(0, S.chao, 0), new M4().makeScale(1, 1 + comp / (H.y - S.chao), 1)); Ms.premultiply(Sc); Mc.premultiply(Sc); Mp.premultiply(Sc); }
+      }
+      M['perna' + l] = Ms; M['coxa' + l] = Mc; M['pe' + l] = Mp; M['dedos' + l] = Mp.clone(); Hn[l] = H.clone().applyMatrix4(Mc);
     }
     const Hm = S.H.d.clone().add(S.H.e).multiplyScalar(0.5), Hm2 = Hn.d.clone().add(Hn.e).multiplyScalar(0.5);
     const obl = (Math.atan2(Hn.e.y - Hn.d.y, Hn.e.x - Hn.d.x) - Math.atan2(S.H.e.y - S.H.d.y, S.H.e.x - S.H.d.x)) / RAD;
-    M.pelve = tra(Hm2, Hm).multiply(em(Hm, rY(g('pelve', 'rot')).multiply(rZ(obl + g('pelve', 'obl'))).multiply(rX(g('pelve', 'ant')))));
+    let u = 0;
+    if (mv.agach) {   // tronco inclina até o centro de massa (corpo) ficar sobre o meio do pé
+      const HAT0 = Hm.clone().lerp(S.Sm, 0.626), pes = [], alvo = (S.A.d.z + S.A.e.z) / 2 + 0.045, braco = 0.1 * 0.3 * Math.sin((mv.flex || 0) * RAD);
+      for (const [l] of LADOS) pes.push([0.1, S.H[l].clone().lerp(S.K[l], 0.433).applyMatrix4(M['coxa' + l]).z], [0.0465, S.K[l].clone().lerp(S.A[l], 0.433).applyMatrix4(M['perna' + l]).z]);
+      const zcm = uu => { const h = HAT0.clone().applyMatrix4(tra(Hm2).multiply(rX(uu)).multiply(neg(Hm))); let s = 0.678 * h.z + braco, m = 0.678; for (const [a, z] of pes) { s += a * z; m += a; } return s / m; };
+      let lo = -10, hi = 85; for (let i = 0; i < 32; i++) { const mid = (lo + hi) / 2; zcm(mid) > alvo ? (hi = mid) : (lo = mid); } u = (lo + hi) / 2;
+    }
+    A.u = u;
+    M.pelve = tra(Hm2, Hm).multiply(em(Hm, rY(g('pelve', 'rot')).multiply(rZ(obl + g('pelve', 'obl'))).multiply(rX(g('pelve', 'ant') + u))));
     const col = d.col || {}, lv = []; let ant = M.pelve;
     for (let i = 0; i <= 24; i++) {
       let reg = 'cerS'; for (const [r, [a, n]] of Object.entries(REG)) if (i >= a && i < a + n) reg = r;
-      const c = col[reg] || [], n = REG[reg][1]; let fr = (c[1] || 0) * k; if (reg === 'lum' && d.compLat) fr -= (obl + g('pelve', 'obl')) * d.compLat;
-      ant = ant.clone().multiply(em(S.piv[i], rY((c[2] || 0) * k / n).multiply(rZ(fr / n)).multiply(rX((c[0] || 0) * k / n))));
+      const c = col[reg] || [], n = REG[reg][1]; let fr = (c[1] || 0) * k, fl = (c[0] || 0) * k; if (reg === 'lum' && d.compLat) fr -= (obl + g('pelve', 'obl')) * d.compLat;
+      if (reg === 'cerS' && mv.agach) fl -= u * 0.45;   // no agachamento o pescoço estende para manter o olhar à frente
+      ant = ant.clone().multiply(em(S.piv[i], rY((c[2] || 0) * k / n).multiply(rZ(fr / n)).multiply(rX(fl / n))));
       lv.push(ant); M[i < 24 ? 'v:' + NIV[i] : 'cabeca'] = ant;
     }
     S.FM = [M.pelve, ...lv].map(m => m.elements);
     for (const [l, , sg] of LADOS) {
-      const Me = lv[13].clone().multiply(new M4().makeTranslation(0, g('esc', 'elev', l) / 100, 0)).multiply(em(S.Ct, rY(sg * g('esc', 'prot', l)))).multiply(em(S.G[l], rY(sg * g('esc', 'wing', l)))).multiply(em(S.Cs[l], rZ(sg * g('esc', 'rotInf', l)).multiply(rX(g('esc', 'tilt', l)))));
+      const lado = !mv.lado || mv.lado === l, fl = lado ? mv.flex || 0 : 0, ab = lado ? mv.abd || 0 : 0, ct = lado ? mv.cot || 0 : 0;
+      // ritmo escapuloumeral: até ~30° quase só a glenoumeral; depois a escápula gira para cima 1° a cada 2° do úmero
+      const elev = Math.max(fl, ab), phi = Math.max(0, elev - 30) * 0.4, rl = Math.max(0, ab - 70) * 0.55; A['phi' + l] = phi; A['rl' + l] = rl;
+      const Me = lv[13].clone().multiply(new M4().makeTranslation(0, g('esc', 'elev', l) / 100, 0)).multiply(em(S.Ct, rY(sg * g('esc', 'prot', l)))).multiply(em(S.G[l], rY(sg * g('esc', 'wing', l))))
+        .multiply(em(S.ac[l], rZ(-sg * phi).multiply(rX(-phi * 0.3)))).multiply(em(S.Cs[l], rZ(sg * g('esc', 'rotInf', l)).multiply(rX(g('esc', 'tilt', l)))));   // rotação para cima em torno da acromioclavicular
       M['esc' + l] = Me;
-      M['braco' + l] = tra(S.G[l].clone().applyMatrix4(Me)).multiply(rY(sg * g('braco', 'rot', l))).multiply(new M4().makeTranslation(-S.G[l].x, -S.G[l].y, -S.G[l].z));
+      const Rel = fl ? rX(-fl) : ab ? rZ(-sg * ab).multiply(rY(-sg * rl)) : new M4();
+      const Mu = tra(S.Hh[l].clone().applyMatrix4(Me)).multiply(rY(sg * g('braco', 'rot', l))).multiply(Rel).multiply(neg(S.Hh[l]));
+      M['umero' + l] = Mu; M['antebraco' + l] = Mu.clone().multiply(em(S.Co[l], rX(-ct)));
       const sc = S.sc[l], sc2 = campoPt(sc), ac2 = S.ac[l].clone().applyMatrix4(Me);
       const q = new THREE.Quaternion().setFromUnitVectors(S.ac[l].clone().sub(sc).normalize(), ac2.sub(sc2).normalize());
-      M['cla' + l] = tra(sc2).multiply(new M4().makeRotationFromQuaternion(q)).multiply(new M4().makeTranslation(-sc.x, -sc.y, -sc.z));
+      M['cla' + l] = tra(sc2).multiply(new M4().makeRotationFromQuaternion(q)).multiply(neg(sc));
     }
-    S.M = M; S.ME = S.SEGN.map(s => (M[s] || new M4()).elements);
+    if (mv.calc) {   // elevação dos calcanhares: o pé gira sobre a cabeça dos metatarsos e o corpo sobe junto
+      const R = l => em(S.MTP[l], rX(mv.calc)), D = tra(S.A.d.clone().applyMatrix4(R('d')), S.A.d);
+      for (const key of Object.keys(M)) if (!/^(pe|dedos)/.test(key)) M[key].premultiply(D);
+      for (const [l] of LADOS) M['pe' + l] = R(l).multiply(M['pe' + l]);
+    }
+    S.M = M;
+    S.SEGN.forEach((s, i) => S.bones[i].matrixWorld.copy(M[s] || I));
+    S.FM.forEach((e, j) => S.bones[S.SEGN.length + j].matrixWorld.fromArray(e));
+  }
+  function campoPt(p) {
+    const FY = S.FY, U = FY.length - 1; let j = 0, f = 0; if (p.y >= FY[U]) { j = U - 1; f = 1; } else if (p.y > FY[0]) { while (p.y >= FY[j + 1]) j++; f = (p.y - FY[j]) / (FY[j + 1] - FY[j]); }
+    return p.clone().applyMatrix4(new M4().fromArray(S.FM[j])).lerp(p.clone().applyMatrix4(new M4().fromArray(S.FM[j + 1])), f);
   }
   const marcos = () => { for (const o of Object.values(S.mk)) o.p.copy(o.r).applyMatrix4(S.M[o.seg]); };
   function anguloQ(l) {   // no plano frontal: linha EIAS→patela contra patela→tuberosidade da tíbia
@@ -989,6 +1088,7 @@ const POSE = (() => {
       liga(o.c1, a, p); liga(o.c2, p, t); liga(o.ext, p, p.clone().add(p.clone().sub(a).normalize().multiplyScalar(0.13))); [a, p, t].forEach((v, i) => o.pts[i].position.copy(v));
       L.q[l] = { a: q, n: S.q0 ? S.q0[l] : q }; rot.push({ p, t: 'Q ' + Math.round(q) + '°', c: '#ffd43b' });
     }
+    if (S.rotExtra) rot.push(...S.rotExtra(S.ang, S.mk));
     S.leit = L; S.rot = rot;
     const el = $('rot'); el.style.display = rot.length ? '' : 'none';
     if (el.childElementCount !== rot.length || el.dataset.de !== 'pose') { el.innerHTML = rot.map(() => '<span></span>').join(''); el.dataset.de = 'pose'; }
@@ -1014,31 +1114,42 @@ const POSE = (() => {
   function aplicar(k, fim = true) {
     S.k = k; calc();
     for (const r of S.rig) { r.m.matrixAutoUpdate = false; r.m.matrix.copy(r.Pi).multiply(S.M[r.seg]).multiply(r.M0); }
-    for (const s of S.ligados) deformar(s, fim);
+    if (fim) for (const n of S.usar) { const c = S.clones.get(n); if (c) c.boundingSphere = null; }   // o toque recalcula a área do músculo na pose nova
     atualizarFerr(); if (S.aoMudar) S.aoMudar(k);
   }
-  function iniciar(def, fer, musculos) {
+  const todosMusculos = () => Object.keys(MESH).filter(n => MESH[n].userData.camada === 'musculos');
+  function usar(musculos, todos) {
+    S.todos = !!todos; S.usar = new Set([...S.campo, ...(todos ? todosMusculos() : musculos)]);
+    for (const c of S.clones.values()) c.visible = false;
+    for (const n of S.usar) clonar(n);
+  }
+  function iniciar(def, fer, musculos, op = {}) {
     preparar(); if (S.ativo) sair();
-    S.def = def || {}; S.fer = new Set(fer || []); S.ativo = true; S.ligados = [];
-    for (const n of [...S.campo, ...musculos]) { if (!MESH[n]) continue; let s = S.soft.get(n); if (!s) S.soft.set(n, s = prepSoft(MESH[n], false)); s.m.geometry = s.g; s.m.matrixAutoUpdate = false; s.m.matrix.copy(s.Pi); S.ligados.push(s); }
-    aplicar(0);
+    S.def = def || {}; S.gen = op.gen || null; S.rotExtra = op.rot || null; S.fer = new Set(fer || []); S.ativo = true; window.POSE_ON = true;
+    S.musculos = musculos; usar(musculos, op.todos);
+    aplicar(op.k0 || 0);
+  }
+  function sinc() {   // depois de aplicarVis: a cópia deformada herda a visibilidade do original, que some
+    for (const n of S.usar) { const c = S.clones.get(n), m = MESH[n]; if (!c || !m) continue; c.visible = m.visible; m.visible = false; }
   }
   function sair() {
-    if (!S.ativo) return; S.ativo = false; S.anim = null; S.aoMudar = null;
+    if (!S.ativo) return; S.ativo = false; window.POSE_ON = false; S.anim = null; S.aoMudar = null; S.rotExtra = null; S.gen = null;
     for (const r of S.rig) { r.m.matrixAutoUpdate = true; r.m.updateMatrix(); }
-    for (const s of S.ligados) { s.m.geometry = s.g0; s.m.matrixAutoUpdate = true; s.m.updateMatrix(); }
-    S.ligados = []; F.raiz.visible = false; const el = $('rot'); if (el.dataset.de === 'pose') { el.style.display = 'none'; el.innerHTML = ''; el.dataset.de = ''; }
+    for (const c of S.clones.values()) c.visible = false;
+    S.usar = new Set(); F.raiz.visible = false; const el = $('rot'); if (el.dataset.de === 'pose') { el.style.display = 'none'; el.innerHTML = ''; el.dataset.de = ''; }
   }
-  const animar = (ate, vaivem = false) => { S.anim = { de: S.k, ate, t0: performance.now(), dur: 900 + 700 * Math.abs(ate - S.k), vaivem }; };
+  const animar = (ate, vaivem = false, dur) => { S.anim = { de: S.k, ate, t0: performance.now(), dur: dur || 900 + 700 * Math.abs(ate - S.k), vaivem, dv: dur }; };
   function tick() {   // chamado a cada quadro; devolve true enquanto houver animação
     const a = S.anim; if (!S.ativo || !a) return false;
     const t = (performance.now() - a.t0) / a.dur; if (t < 0) return true;
     const u = Math.min(1, t), e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
     aplicar(a.de + (a.ate - a.de) * e, u >= 1);
-    if (u >= 1) S.anim = a.vaivem ? { de: a.ate, ate: a.ate > 0.5 ? 0 : 1, t0: performance.now() + 700, dur: 1600, vaivem: true } : null;
+    if (u >= 1) S.anim = a.vaivem ? { de: a.ate, ate: a.ate > 0.5 ? 0 : 1, t0: performance.now() + 500, dur: a.dv || 1600, vaivem: true, dv: a.dv } : null;
     return true;
   }
-  return { S, iniciar, sair, aplicar, animar, tick, rotulos, leituraHTML, atualizarFerr, get ativo() { return S.ativo; }, parar() { S.anim = null; } };
+  const alvos = () => S.ativo ? [...S.usar].map(n => S.clones.get(n)).filter(c => c && c.visible) : [];
+  return { S, pele, iniciar, sair, sinc, aplicar, animar, tick, rotulos, leituraHTML, atualizarFerr, alvos, setTodos(on) { usar(S.musculos || [], on); aplicar(S.k); },
+    get ativo() { return S.ativo; }, get pronta() { return !!S.peleOk; }, parar() { S.anim = null; } };
 })();
 
 function limparDesvio() {
@@ -1047,6 +1158,20 @@ function limparDesvio() {
   desvioAtivo = null;
 }
 const nomePt = b => { const n = Object.keys(E).find(k => E[k].b === b && E[k].c === 'musculos'); return n ? E[n].n : b; };
+function colorir(grupos, cores) {   // pinta os músculos de cada grupo; devolve os nomes das malhas
+  const nomes = new Set();
+  for (const [g, lista] of Object.entries(grupos)) {
+    const bases = new Set(lista);
+    for (const [n, e] of Object.entries(E)) if (e.c === 'musculos' && bases.has(e.b) && MESH[n]) { nomes.add(n); const m = MESH[n]; if (!m.userData.cor0) m.userData.cor0 = m.material.color.clone(); m.material.color.set(cores[g]); }
+  }
+  return nomes;
+}
+// espera os pesos de pele (calculados em segundo plano logo depois que o modelo carrega)
+async function peleProntaToast() {
+  if (POSE.pronta) return;
+  const msg = p => { const el = $('toast'); el.textContent = `Preparando os músculos para se moverem · ${Math.round(p * 100)}%`; el.classList.add('on'); };
+  msg(POSE.S.prog || 0); await POSE.pele(msg); $('toast').classList.remove('on');
+}
 // enquadra a faixa do corpo na área livre da tela (acima do painel no celular, à esquerda dele no computador)
 function enquadrarP(quadro, vista) {
   const [y, alt] = QUADRO[quadro] || QUADRO.corpo, W = innerWidth, H = innerHeight, cel = W < 900;
@@ -1058,13 +1183,14 @@ function enquadrarP(quadro, vista) {
   voar(new THREE.Vector3(0, y, 0).addScaledVector(dr, -dx * wpp).addScaledVector(up, dy * wpp).toArray(), dist, dir, false);
 }
 function painelP(titulo, sub, html) { $('pT').textContent = titulo; $('pS').innerHTML = sub; $('pB').innerHTML = html; $('painel').classList.add('on'); painelAberto = true; resize(); $('pB').scrollTop = 0; }
-const chipsFer = () => `<div class="seg" id="pFer">${Object.entries(FER_N).map(([k, n]) => `<button data-f="${k}" class="${POSE.S.fer.has(k) ? 'on' : ''}">${n}</button>`).join('')}</div><div id="pLeit">${POSE.leituraHTML()}</div>`;
+const chipsFer = (todos = true) => `<div class="seg" id="pFer">${Object.entries(FER_N).map(([k, n]) => `<button data-f="${k}" class="${POSE.S.fer.has(k) ? 'on' : ''}">${n}</button>`).join('')}${todos ? `<button data-todos="1" class="${POSE.S.todos ? 'on' : ''}">Todos os músculos</button>` : ''}</div><div id="pLeit">${POSE.leituraHTML()}</div>`;
 function ligarPainelP() {
   $('pB').onclick = ev => {
     const b = ev.target.closest('button'); if (!b) return;
     if (b.id === 'bVoltaP') return listaPostura();
     if (b.dataset.d) return mostrarDesvio(b.dataset.d);
     if (b.dataset.t) return mostrarFerramenta(b.dataset.t);
+    if (b.dataset.todos) { const on = b.classList.toggle('on'); POSE.setTodos(on); isolado = on ? null : new Set(POSE.S.musculos); aplicarVis(); return; }
     if (b.dataset.f) { const f = POSE.S.fer; f.has(b.dataset.f) ? f.delete(b.dataset.f) : f.add(b.dataset.f); b.classList.toggle('on'); POSE.atualizarFerr(); $('pLeit').innerHTML = POSE.leituraHTML(); return; }
     if (b.dataset.k !== undefined) { $('pCmp').classList.remove('on'); return POSE.animar(+b.dataset.k); }
     if (b.id === 'pCmp') { const on = b.classList.toggle('on'); on ? POSE.animar(POSE.S.k > 0.5 ? 0 : 1, true) : POSE.parar(); }
@@ -1083,23 +1209,21 @@ function listaPostura() {
     <div class="aviso">${esc(POST.nota)}</div>`);
   ligarPainelP();
 }
-function mostrarFerramenta(id) {
-  limparDesvio(); const f = POST.ferramentas.find(x => x.id === id); if (!f) return; desvioAtivo = id;
+async function mostrarFerramenta(id) {
+  const f = POST.ferramentas.find(x => x.id === id); if (!f) return;
+  await peleProntaToast(); limparDesvio(); desvioAtivo = id;
   isolado = new Set(); POSE.iniciar({}, f.fer, []); aplicarVis(); destacar(null);
   enquadrarP(id === 'f-q' ? 'pernas' : 'corpo', id === 'f-lat' ? 'lat' : id === 'f-post' ? 'post' : 'ant');
-  painelP(f.nome, '<span class="tag">avaliação postural</span>', `<div class="acoes" style="margin:0 0 8px"><button id="bVoltaP">← Postura</button></div>${chipsFer()}${f.texto}
+  painelP(f.nome, '<span class="tag">avaliação postural</span>', `<div class="acoes" style="margin:0 0 8px"><button id="bVoltaP">← Postura</button></div>${chipsFer(false)}${f.texto}
     <div class="aviso">O modelo neutro serve de referência: os desvios são medidos em relação a ele. Em uma pessoa real, pequenas diferenças são normais.</div>`);
   ligarPainelP();
 }
-function mostrarDesvio(id) {
-  limparDesvio(); const d = POST.lista.find(x => x.id === id); if (!d) return; desvioAtivo = id; const P = POSES[id] || {};
-  isolado = new Set();
-  for (const g of ['enc', 'alo', 'ten']) {
-    const bases = new Set(d[g]);
-    for (const [n, e] of Object.entries(E)) if (e.c === 'musculos' && bases.has(e.b) && MESH[n]) { isolado.add(n); const m = MESH[n]; if (!m.userData.cor0) m.userData.cor0 = m.material.color.clone(); m.material.color.set(CORES_P[g]); }
-  }
+async function mostrarDesvio(id) {
+  const d = POST.lista.find(x => x.id === id); if (!d) return; const P = POSES[id] || {};
+  await peleProntaToast(); limparDesvio(); desvioAtivo = id;
+  const nomes = colorir({ enc: d.enc, alo: d.alo, ten: d.ten }, CORES_P); isolado = new Set(nomes);
   if (!visCamada.musculos) { visCamada.musculos = true; document.querySelector('[data-c=musculos]').classList.add('on'); }
-  POSE.iniciar(P, P.fer || ['lat'], [...isolado]); aplicarVis(); destacar(null); enquadrarP(P.quadro, P.vista);
+  POSE.iniciar(P, P.fer || ['lat'], [...nomes]); aplicarVis(); destacar(null); enquadrarP(P.quadro, P.vista);
   const lista = g => d[g].length ? `<div class="pleg"><b style="color:${CORES_P[g]}"><i style="background:${CORES_P[g]}"></i>${ROT_P[g]}</b><span>${d[g].map(b => esc(nomePt(b))).join(' · ')}</span></div>` : '';
   const ul = a => `<ul>${(a || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
   painelP(d.nome, `<span class="tag">desvio postural</span>${esc(d.local)}`, `
@@ -1128,6 +1252,144 @@ function mostrarDesvio(id) {
   POSE.animar(1);
 }
 
+/* ---------- corpo inteiro em movimento ---------- */
+const CORES_M = { ag: '#ffb938', sin: '#ff6b8b', est: '#2fd3c6' };
+const ROT_M = { ag: 'Agonistas: fazem o movimento', sin: 'Sinergistas: ajudam o agonista', est: 'Estabilizadores: seguram as articulações' };
+const PL = { s: ['sagital', 'látero-lateral'], f: ['frontal', 'anteroposterior'], t: ['transverso', 'longitudinal'] };
+const ombroAg = { flex: ['Clavicular part of deltoid muscle', 'Clavicular head of pectoralis major muscle', 'Coracobrachialis muscle', 'Long head of biceps brachii'], abd: ['Acromial part of deltoid muscle', 'Supraspinatus muscle'] };
+const escap = ['Serratus anterior muscle', 'Descending part of trapezius muscle', 'Ascending part of trapezius muscle'];
+const lombo = t => { const th = 110 * t, lf = 45 * (1 - (1 - th / 110) ** 2); return { th, lf, hip: th - lf }; };
+const MOVS = [
+  { id: 'flexao-ombro', grupo: 'Membro superior', nome: 'Elevação do braço à frente (flexão do ombro)', quadro: 'ombro', vista: 'lat', dur: 2600,
+    gen: t => ({ mov: { flex: 180 * t } }),
+    tiles: (t, A) => [['Elevação do braço', 180 * t], ['Glenoumeral', 180 * t - A.phid], ['Escápula (rotação para cima)', A.phid]],
+    rot: (A, mk) => [{ p: mk.cot_d.p, t: 'ombro ' + Math.round(POSE.S.k * 180) + '°', c: '#ffb938' }, { p: mk.acr_d.p, t: 'escápula ' + Math.round(A.phid) + '°', c: '#2fd3c6' }],
+    fase: sobe => sobe ? 'Subindo: o deltoide (parte clavicular) e o peitoral maior (parte clavicular) trabalham em ação concêntrica, e o serrátil anterior e o trapézio giram a escápula para cima.' : 'Descendo: os mesmos músculos freiam o braço em ação excêntrica. Sem carga, a gravidade faz o movimento e eles só controlam a velocidade.',
+    ag: ombroAg.flex, sin: escap, est: ['Supraspinatus muscle', 'Infraspinatus muscle', 'Teres minor muscle', 'Subscapularis muscle'],
+    juntas: [['Glenoumeral', 'Flexão', 's', '0 a cerca de 120°'], ['Escapulotorácica', 'Rotação para cima', 'f', '0 a cerca de 60°'], ['Acromioclavicular e esternoclavicular', 'Elevação e rotação da clavícula', 't', 'acompanham a escápula']],
+    texto: `<p><b>Ritmo escapuloumeral.</b> O braço só chega a 180° porque duas articulações dividem o trabalho. Nos primeiros 30° quase tudo vem da glenoumeral. Depois, para cada 2° do úmero a escápula gira cerca de 1° para cima (proporção média de 2:1, descrita por Inman em 1944). No fim: cerca de 120° na glenoumeral e 60° na escapulotorácica.</p>
+      <p><b>Por que a escápula precisa girar.</b> Ao girar para cima, ela leva a cavidade glenoidal junto: a cabeça do úmero continua centrada, o deltoide mantém um comprimento bom para gerar força e o acrômio sai da frente do tubérculo maior, deixando espaço para os tendões do manguito.</p>
+      <p><b>Quem gira a escápula:</b> um binário de forças. O trapézio descendente puxa a clavícula e o acrômio para cima, o ascendente puxa a espinha da escápula para baixo e o serrátil anterior puxa o ângulo inferior para a frente e para fora. Os três juntos fazem a escápula rodar em torno de um eixo perto da articulação acromioclavicular.</p>
+      <p><b>Manguito rotador:</b> enquanto o deltoide eleva, o supraespinal, o infraespinal, o redondo menor e o subescapular comprimem a cabeça do úmero contra a glenoide e impedem que ela suba e bata no acrômio.</p>`,
+    atencao: ['Se a escápula não gira (serrátil ou trapézio fracos, cifose, peitoral menor encurtado), sobra menos espaço abaixo do acrômio: é a base do arco doloroso entre 60° e 120°.', 'Encolher o ombro logo no início (antes de 60°) costuma indicar trapézio superior dominando o movimento.', 'Arredondar ou arquear a lombar para "ganhar" altura no fim do movimento compensa falta de mobilidade torácica ou de ombro.'],
+    fontes: ['Inman, Saunders e Abbott (1944), J Bone Joint Surg: função da articulação do ombro (ritmo escapuloumeral).', 'Neumann. Cinesiologia do aparelho musculoesquelético, cap. 5.', 'Ludewig e Reynolds (2009), J Orthop Sports Phys Ther: cinemática da escápula e disfunção do ombro.'] },
+  { id: 'abducao-ombro', grupo: 'Membro superior', nome: 'Abertura lateral do braço (abdução do ombro)', quadro: 'ombro', vista: 'ant', dur: 2600,
+    gen: t => ({ mov: { abd: 180 * t } }),
+    tiles: (t, A) => [['Abdução', 180 * t], ['Glenoumeral', 180 * t - A.phid], ['Escápula (rotação para cima)', A.phid], ['Rotação lateral do úmero', A.rld]],
+    rot: (A, mk) => [{ p: mk.cot_d.p, t: 'abdução ' + Math.round(POSE.S.k * 180) + '°', c: '#ffb938' }, { p: mk.acr_d.p, t: 'escápula ' + Math.round(A.phid) + '°', c: '#2fd3c6', esq: true }],
+    fase: sobe => sobe ? 'Subindo: deltoide (parte acromial) e supraespinal em ação concêntrica; acima de 90° o úmero gira para fora para o tubérculo maior passar por baixo do acrômio.' : 'Descendo: deltoide e supraespinal em ação excêntrica, controlando a volta do braço.',
+    ag: ombroAg.abd, sin: escap, est: ['Infraspinatus muscle', 'Teres minor muscle', 'Subscapularis muscle'],
+    juntas: [['Glenoumeral', 'Abdução', 'f', '0 a cerca de 120°'], ['Glenoumeral', 'Rotação lateral (acima de 90°)', 't', 'cerca de 30° a 50°'], ['Escapulotorácica', 'Rotação para cima', 'f', '0 a cerca de 60°']],
+    texto: `<p><b>Supraespinal e deltoide dividem a tarefa.</b> O supraespinal participa de toda a abdução, não só do começo: ele estabiliza a cabeça do úmero enquanto o deltoide gera a maior parte do torque. Com o braço ao lado do corpo, a linha de tração do deltoide é quase vertical e tende a puxar o úmero para cima; o manguito compensa essa tendência.</p>
+      <p><b>Rotação lateral obrigatória.</b> Para abduzir acima de cerca de 90° com o braço em rotação neutra, o tubérculo maior do úmero precisa passar por baixo do acrômio. Por isso o úmero gira para fora durante a subida (no modelo, a palma vira para a frente). Tente elevar o braço com o polegar para baixo e veja como a amplitude fica limitada e desconfortável.</p>
+      <p><b>Ritmo escapuloumeral:</b> a mesma proporção média de 2:1 da flexão. No fim, cerca de 120° vêm da glenoumeral e 60° da escápula.</p>`,
+    atencao: ['Elevação lateral com rotação medial ("derramando a jarra") aproxima o tubérculo maior do acrômio: prefira o polegar neutro ou para cima.', 'No plano da escápula (cerca de 30° à frente do plano frontal) a cápsula fica mais relaxada e o movimento costuma ser mais confortável.', 'Dor entre 60° e 120° que alivia acima disso é o arco doloroso típico de tendinopatia do manguito ou bursite subacromial.'],
+    fontes: ['Neumann. Cinesiologia do aparelho musculoesquelético, cap. 5.', 'Inman, Saunders e Abbott (1944), J Bone Joint Surg.', 'Reinold, Escamilla e Wilk (2009), J Orthop Sports Phys Ther: ativação do manguito rotador e do deltoide em exercícios.'] },
+  { id: 'rosca', grupo: 'Membro superior', nome: 'Flexão do cotovelo (rosca)', quadro: 'braco', vista: 'lat', dur: 2000,
+    gen: t => ({ mov: { cot: 145 * t } }),
+    tiles: t => [['Flexão do cotovelo', 145 * t]],
+    rot: (A, mk) => [{ p: mk.cot_d.p, t: 'cotovelo ' + Math.round(POSE.S.k * 145) + '°', c: '#ffb938' }],
+    fase: sobe => sobe ? 'Subindo: bíceps, braquial e braquiorradial em ação concêntrica. Com halter, o torque externo é máximo com o antebraço na horizontal (perto de 90°).' : 'Descendo: os flexores trabalham em ação excêntrica, freando o antebraço.',
+    ag: ['Long head of biceps brachii', 'Short head of biceps brachii', 'Brachialis muscle', 'Brachioradialis muscle'], sin: ['Superficial head of pronator teres', 'Deep head of pronator teres'], est: ['Clavicular part of deltoid muscle', 'Descending part of trapezius muscle', 'Transverse part of trapezius muscle', 'Rhomboid major muscle'],
+    juntas: [['Umeroulnar e umerorradial', 'Flexão', 's', '0 a cerca de 145°']],
+    texto: `<p><b>Três flexores com papéis diferentes.</b> O braquial insere na ulna e flexiona com a mesma eficiência em qualquer posição do antebraço. O bíceps insere no rádio: é também supinador e perde eficiência com o antebraço pronado. O braquiorradial tem o maior braço de momento e trabalha mais com o antebraço em posição neutra (rosca martelo).</p>
+      <p><b>Estabilizadores:</b> durante a rosca, o ombro e a escápula precisam ficar parados para o esforço ir para o cotovelo. Se o deltoide anterior entra para "jogar" o braço à frente, parte da carga sai dos flexores do cotovelo.</p>
+      <p>Para estudar torque e braço de momento ângulo a ângulo, abra <b>Cotovelo</b> e toque em "Mover o cotovelo".</p>`,
+    atencao: ['Balançar o tronco ou levar o cotovelo à frente transfere a carga para a lombar e o ombro.', 'Estender por completo é seguro e útil para a hipertrofia; o cuidado é não deixar o peso "cair" no fim da descida.'],
+    fontes: ['Neumann. Cinesiologia do aparelho musculoesquelético, cap. 6.', 'Kapandji. Anatomia funcional, vol. 1.'] },
+  { id: 'agachamento', grupo: 'Membro inferior e tronco', nome: 'Agachamento livre (braços à frente)', quadro: 'corpo', vista: 'frente', dur: 2600,
+    gen: t => ({ mov: { agach: 120 * t, flex: Math.min(90, 160 * t) } }),
+    tiles: (t, A) => [['Joelho · flexão', 120 * t], ['Quadril · flexão', (A.t || 0) + (A.u || 0)], ['Tornozelo · dorsiflexão', A.s || 0], ['Tronco · inclinação', A.u || 0]],
+    rot: (A, mk) => [{ p: mk.joe_d.p, t: 'joelho ' + Math.round(POSE.S.k * 120) + '°', c: '#ffb938' }, { p: mk.qua_d.p, t: 'quadril ' + Math.round((A.t || 0) + (A.u || 0)) + '°', c: '#ff6b8b' }, { p: mk.mal_d.p, t: 'tornozelo ' + Math.round(A.s || 0) + '°', c: '#2fd3c6' }],
+    fase: sobe => sobe ? 'Descendo: quadríceps, glúteo máximo e adutor magno trabalham em ação excêntrica, freando a descida. O tronco inclina para o centro de massa continuar sobre o meio do pé.' : 'Subindo: os mesmos extensores trabalham em ação concêntrica. Quadril e joelho estendem juntos, sem o quadril subir antes.',
+    ag: ['Rectus femoris muscle', 'Vastus lateralis muscle', 'Vastus medialis muscle', 'Vastus intermedius muscle', 'Gluteus maximus muscle', 'Adductor magnus'], sin: ['Soleus muscle', 'Semitendinosus muscle', 'Semimembranosus muscle', 'Long head of biceps femoris'],
+    est: ['Iliocostalis lumborum muscle', 'Longissimus thoracis muscle', 'Multifidus lumborum muscle', 'Rectus abdominis muscle', 'External abdominal oblique muscle', 'Internal abdominal oblique muscle', 'Transversus abdominis muscle'],
+    juntas: [['Joelho', 'Flexão (descida) e extensão (subida)', 's', '0 a cerca de 120°'], ['Quadril', 'Flexão e extensão', 's', '0 a cerca de 100°'], ['Tornozelo', 'Dorsiflexão', 's', 'até cerca de 35°'], ['Coluna lombar', 'Mantida neutra pelos estabilizadores', '—', '—']],
+    texto: `<p><b>Cadeia fechada:</b> o pé fica fixo no chão e três articulações se movem juntas. O tornozelo deixa a canela avançar, o joelho e o quadril flexionam, e o tronco inclina o quanto for preciso para o centro de massa ficar sobre o meio do pé. Os braços à frente ajudam: deslocam parte do peso para a frente e deixam o tronco mais vertical.</p>
+      <p><b>Quem trabalha.</b> O quadríceps estende o joelho; o glúteo máximo e o adutor magno estendem o quadril. Os isquiotibiais cruzam quadril e joelho e mudam pouco de comprimento: ajudam a estender o quadril e protegem o joelho, mas não são os principais motores. O sóleo controla a canela avançando.</p>
+      <p><b>Estabilizadores do tronco:</b> eretores da espinha, multífidos e o abdômen (com o transverso e os oblíquos aumentando a pressão dentro do abdômen) mantêm a coluna estável enquanto o tronco inclina.</p>
+      <p>Para ver os momentos em cada articulação e mudar barra, carga e mobilidade, abra <b>Joelho</b> e toque em "Agachamento".</p>`,
+    atencao: ['O joelho passar da ponta do pé é normal; impedir isso aumenta muito a exigência no quadril e na lombar.', 'Pouca dorsiflexão faz o tronco inclinar mais. Calço no calcanhar ou sapato de levantamento ajudam.', 'Joelho entrando (valgo) na subida pede mais controle de glúteo médio e máximo.', 'A profundidade ideal é a que a pessoa controla com a lombar estável e sem dor.'],
+    fontes: ['Schoenfeld (2010), J Strength Cond Res: cinemática do agachamento e aplicações no treino.', 'Escamilla (2001), Med Sci Sports Exerc: biomecânica do joelho no agachamento.', 'Hartmann, Wirth e Klusemann (2013), Sports Med: profundidade do agachamento.', 'Neumann, caps. 12 e 13.'] },
+  { id: 'flexao-tronco', grupo: 'Membro inferior e tronco', nome: 'Flexão do tronco (ritmo lombopélvico)', quadro: 'corpo', vista: 'lat', dur: 2800,
+    gen: t => { const { th, lf, hip } = lombo(t); return { pelve: { ant: hip }, col: { lum: [lf], torI: [th * 0.1] }, perna: { inclina: -hip * 0.14 } }; },
+    tiles: t => { const { th, lf, hip } = lombo(t); return [['Tronco · flexão total', th], ['Coluna lombar', lf], ['Quadril (pelve)', hip]]; },
+    rot: (A, mk) => { const { lf, hip } = lombo(POSE.S.k); return [{ p: mk.l3.p, t: 'lombar ' + Math.round(lf) + '°', c: '#2fd3c6' }, { p: mk.qua_d.p, t: 'quadril ' + Math.round(hip) + '°', c: '#ffb938' }]; },
+    fase: sobe => sobe ? 'Descendo: eretores da espinha, glúteo máximo e isquiotibiais trabalham em ação excêntrica, freando a flexão. A coluna lombar flexiona mais no começo e a pelve gira mais no fim.' : 'Subindo: os extensores do quadril começam a volta girando a pelve; os eretores completam a extensão da coluna.',
+    ag: ['Gluteus maximus muscle', 'Semitendinosus muscle', 'Semimembranosus muscle', 'Long head of biceps femoris', 'Adductor magnus'], sin: ['Iliocostalis lumborum muscle', 'Longissimus thoracis muscle', 'Multifidus lumborum muscle', 'Spinalis thoracis muscle'], est: ['Transversus abdominis muscle', 'Internal abdominal oblique muscle', 'Soleus muscle'],
+    juntas: [['Coluna lombar', 'Flexão', 's', 'até cerca de 40° a 50°'], ['Quadril (rotação da pelve sobre os fêmures)', 'Flexão', 's', 'até cerca de 70°'], ['Tornozelo', 'Pequena flexão plantar (quadril vai para trás)', 's', 'alguns graus']],
+    texto: `<p><b>Ritmo lombopélvico.</b> Inclinar o tronco à frente com os joelhos estendidos é a soma de duas partes: a flexão da coluna lombar e a rotação da pelve sobre os fêmures (flexão do quadril). No começo a lombar contribui mais; no fim, a maior parte vem do quadril. No modelo, cerca de 45° vêm da lombar e 65° do quadril.</p>
+      <p><b>Quem controla.</b> A gravidade faz a descida; glúteo máximo, isquiotibiais e eretores da espinha freiam em ação excêntrica. Perto da flexão máxima, os eretores quase param de disparar e os tecidos passivos (ligamentos e fáscia toracolombar) assumem parte da carga: é o fenômeno de flexão-relaxamento.</p>
+      <p><b>O quadril vai para trás</b> para o centro de massa continuar sobre os pés.</p>
+      <p><b>Isquiotibiais encurtados</b> limitam a rotação da pelve: para chegar ao chão, a lombar precisa flexionar mais. Por isso o ritmo lombopélvico muda de pessoa para pessoa e ajuda a avaliar.</p>`,
+    atencao: ['Para levantar cargas (terra, stiff), mantenha a lombar perto do neutro e use mais o quadril: a flexão lombar sob carga alta concentra o esforço nos tecidos passivos.', 'Sem carga, flexionar a coluna é um movimento normal e saudável.', 'Quem sente dor ao levantar costuma usar pouco o quadril; treinar o movimento de "dobradiça" do quadril ajuda.'],
+    fontes: ['Neumann, caps. 9 e 12.', 'Esola et al. (1996), Spine: ritmo lombopélvico na flexão do tronco.', 'McGill. Low Back Disorders: evidence-based prevention and rehabilitation.'] },
+  { id: 'panturrilha', grupo: 'Membro inferior e tronco', nome: 'Elevação dos calcanhares (flexão plantar)', quadro: 'pernas', vista: 'lat', dur: 1800,
+    gen: t => ({ mov: { calc: 32 * t } }),
+    tiles: t => [['Tornozelo · flexão plantar', 32 * t], ['Calcanhar sobe', 32 * t]],
+    rot: (A, mk) => [{ p: mk.mal_d.p, t: 'tornozelo ' + Math.round(POSE.S.k * 32) + '°', c: '#ffb938' }],
+    fase: sobe => sobe ? 'Subindo: gastrocnêmio e sóleo em ação concêntrica puxam o calcâneo pelo tendão do calcâneo; o pé vira uma alavanca apoiada na cabeça dos metatarsos.' : 'Descendo: os mesmos músculos trabalham em ação excêntrica até o calcanhar voltar ao chão.',
+    ag: ['Medial head of gastrocnemius', 'Lateral head of gastrocnemius', 'Soleus muscle'], sin: ['Tibialis posterior muscle', 'Fibularis longus muscle', 'Fibularis brevis muscle', 'Flexor hallucis longus'], est: [],
+    juntas: [['Talocrural (tornozelo)', 'Flexão plantar', 's', '0 a cerca de 45° a 50°'], ['Metatarsofalângicas', 'Extensão (dedos ficam no chão)', 's', 'até cerca de 60°']],
+    texto: `<p><b>Alavanca de segunda classe.</b> O apoio fica na cabeça dos metatarsos, a resistência (o peso do corpo) passa pela tíbia e a força muscular entra pelo tendão do calcâneo, mais longe do apoio. Por isso uma força relativamente pequena levanta o corpo todo.</p>
+      <p><b>Gastrocnêmio x sóleo.</b> O gastrocnêmio cruza o joelho: com o joelho estendido (em pé), ele está alongado e contribui bastante. Com o joelho flexionado (panturrilha sentada), fica frouxo e o sóleo assume a maior parte do trabalho.</p>
+      <p><b>Sinergistas:</b> o tibial posterior e os fibulares estabilizam o pé, e o flexor longo do hálux ajuda a empurrar pelo dedão.</p>`,
+    atencao: ['Use amplitude completa: descer o calcanhar abaixo do degrau alonga o tríceps sural sob carga, útil para hipertrofia e para a saúde do tendão.', 'O peso deve passar entre o primeiro e o segundo dedo; jogar o peso para o dedinho sobrecarrega a borda lateral do tornozelo.'],
+    fontes: ['Neumann, cap. 14.', 'Kapandji. Anatomia funcional, vol. 2.'] },
+];
+let movAtivo = null;
+function listaMov() {
+  limparDesvio(); isolado = null; filtroInsercao = null; aplicarVis(); destacar(null);
+  document.querySelectorAll('#regioes .chip').forEach(b => b.classList.toggle('on', b.dataset.r === 'movimento'));
+  voar([0, 0.9, 0], 3.7, new THREE.Vector3(-0.5, 0.1, 1));
+  const grupos = {}; MOVS.forEach(m => (grupos[m.grupo] = grupos[m.grupo] || []).push(m));
+  painelP('Corpo em movimento', '<span class="tag">cinesiologia</span>o corpo inteiro, com todos os músculos', `
+    <p>Escolha um movimento: todos os ossos e músculos se movem juntos. Os que trabalham aparecem em <b style="color:${CORES_M.ag}">âmbar (agonistas)</b>, <b style="color:${CORES_M.sin}">rosa (sinergistas)</b> e <b style="color:${CORES_M.est}">verde-água (estabilizadores)</b>, com os ângulos de cada articulação ao vivo.</p>
+    ${Object.entries(grupos).map(([g, ms]) => `<h3>${esc(g)}</h3><div class="lista">${ms.map(m => `<button data-m="${m.id}"><i style="background:${CORES_M.ag}"></i>${esc(m.nome)}</button>`).join('')}</div>`).join('')}
+    <div class="aviso">O movimento é um modelo de estudo: cada osso segue ângulos médios da literatura e os músculos se deformam acompanhando os ossos vizinhos, sem simular contração.</div>`);
+  $('pB').onclick = ev => { const b = ev.target.closest('button[data-m]'); if (b) mostrarMov(b.dataset.m); };
+}
+async function mostrarMov(id) {
+  const m = MOVS.find(x => x.id === id); if (!m) return;
+  await peleProntaToast(); limparDesvio(); movAtivo = m;
+  colorir({ ag: m.ag, sin: m.sin, est: m.est }, CORES_M); isolado = null; filtroInsercao = null;
+  if (!visCamada.musculos) { visCamada.musculos = true; document.querySelector('[data-c=musculos]').classList.add('on'); }
+  POSE.iniciar({}, [], [], { gen: m.gen, rot: m.rot, todos: true }); aplicarVis(); destacar(null); enquadrarP(m.quadro, m.vista);
+  const lista = g => m[g].length ? `<div class="pleg"><b style="color:${CORES_M[g]}"><i style="background:${CORES_M[g]}"></i>${ROT_M[g]}</b><span>${m[g].map(b => esc(nomePt(b))).join(' · ')}</span></div>` : '';
+  painelP(m.nome, `<span class="tag">movimento</span>${esc(m.grupo)}`, `
+    <div class="acoes" style="margin:0 0 8px"><button id="bVoltaM">← Movimentos</button></div>
+    <div class="pctl"><div class="pctl-t"><span>Amplitude</span><output id="mK">0%</output></div>
+      <input id="mKs" type="range" min="0" max="100" step="1" value="0" aria-label="Amplitude do movimento">
+      <div class="seg"><button data-k="0">Início</button><button data-k="1">Fim</button><button id="mPlay" class="on">❚❚ Pausar</button></div></div>
+    <div class="kp mt4" id="mAng"></div>
+    <div class="zona ok" id="mFase"></div>
+    <h3>Músculos</h3>${lista('ag')}${lista('sin')}${lista('est')}
+    <h3>Articulações, planos e eixos</h3>
+    <table class="ac"><tr><th>Articulação</th><th>Movimento</th><th>Plano · eixo</th><th>Amplitude</th></tr>${m.juntas.map(([a, mv, p, amp]) => `<tr><td><b>${esc(a)}</b></td><td>${esc(mv)}</td><td>${PL[p] ? `<span class="pl ${PL[p][0]}">${PL[p][0]}</span><br><small>${PL[p][1]}</small>` : '—'}</td><td>${esc(amp)}</td></tr>`).join('')}</table>
+    <h3>Como funciona</h3>${m.texto}
+    <h3>Pontos de atenção</h3><ul>${m.atencao.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+    <div class="fontes">Fontes: ${m.fontes.map(esc).join(' · ')} · Modelo 3D: Z-Anatomy (CC BY-SA 4.0).</div>`);
+  let ult = 0, sobe = true;
+  POSE.S.aoMudar = k => {
+    if (!$('mKs') || movAtivo !== m) return;
+    if (Math.abs(k - ult) > 1e-4) sobe = k > ult; ult = k;
+    $('mK').textContent = Math.round(k * 100) + '%'; if (document.activeElement !== $('mKs')) $('mKs').value = Math.round(k * 100);
+    $('mAng').innerHTML = m.tiles(k, POSE.S.ang).map(([n, v]) => `<div><small>${esc(n)}</small><b>${Math.round(v)}°</b></div>`).join('');
+    const f = m.fase(sobe); if ($('mFase').textContent !== f) $('mFase').textContent = f;
+  };
+  POSE.S.aoMudar(0);
+  const play = on => { $('mPlay').classList.toggle('on', on); $('mPlay').textContent = on ? '❚❚ Pausar' : '▶ Reproduzir'; on ? POSE.animar(POSE.S.k > 0.5 ? 0 : 1, true, m.dur) : POSE.parar(); };
+  $('pB').onclick = ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.id === 'bVoltaM') return listaMov();
+    if (b.id === 'mPlay') return play(!b.classList.contains('on'));
+    if (b.dataset.k !== undefined) { play(false); POSE.animar(+b.dataset.k); }
+  };
+  $('mKs').oninput = e => { play(false); POSE.aplicar(e.target.value / 100, false); };
+  $('mKs').onchange = e => POSE.aplicar(e.target.value / 100, true);
+  POSE.animar(1, true, m.dur);
+}
+
 /* ---------- laço ---------- */
 const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 renderer.setAnimationLoop(() => {
@@ -1143,5 +1405,7 @@ renderer.setAnimationLoop(() => {
 // painel no celular: tocar no cabeçalho recolhe ou expande a folha
 $('painel').querySelector('.p-h').addEventListener('click', e => { if (innerWidth < 900 && !e.target.closest('#pX')) $('painel').classList.toggle('min'); });
 new MutationObserver(() => $('painel').classList.remove('min')).observe($('pT'), { childList: true, characterData: true, subtree: true });
+// prepara em segundo plano os pesos que deixam os músculos acompanharem os ossos
+setTimeout(() => POSE.pele(), 1200);
 aplicarVis();
-window.__cm = { MESH, E, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
+window.__cm = { MESH, E, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, mostrarMov, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
