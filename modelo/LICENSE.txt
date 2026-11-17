@@ -1,0 +1,19 @@
+Arquivos de modelo 3D (ossos.glb, musculos.glb, articulacoes.glb, insercoes.glb)
+
+Licença: Creative Commons Atribuição-CompartilhaIgual 4.0 Internacional (CC BY-SA 4.0)
+https://creativecommons.org/licenses/by-sa/4.0/legalcode.pt
+
+Origem
+- Z-Anatomy, the libre 3D atlas of anatomy — Gauthier Kervyn e colaboradores — CC BY-SA 4.0
+  https://www.z-anatomy.com/
+- Derivado do BodyParts3D, © The Database Center for Life Science (DBCLS) — CC BY 4.0
+  (versões anteriores sob CC BY-SA 2.1 JP) — https://dbarchive.biosciencedbc.jp/en/bodyparts3d/
+
+Modificações feitas no Cinesiomecânica
+- Seleção de ossos, músculos, ligamentos e áreas de origem e inserção
+- Retirada dos ossículos da orelha média (martelo, bigorna e estribo)
+- Conversão para glTF binário, solda de vértices, quantização e compressão meshopt
+
+Os autores dos modelos originais não endossam o Cinesiomecânica nem o uso que ele faz dos modelos.
+Esta licença vale só para os arquivos de modelo desta pasta. O código, os textos, as fichas e o design
+do site não estão sob esta licença.

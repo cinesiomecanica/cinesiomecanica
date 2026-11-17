@@ -2201,7 +2201,7 @@ function abaMais() {
       <li>A <b>folha de baixo</b> sobe e desce: arraste pela alça ou toque no título.</li>
       <li>Na lateral: <b>Tirar</b> (remove estruturas com um toque), <b>Voltar</b>, <b>Padrão</b> e <b>Só direito</b>.</li>
       <li>As <b>camadas</b> (ossos, músculos, origem e inserção, ligamentos) ficam logo abaixo do título.</li></ul>
-    <h3>Créditos</h3><p class="pnota">Modelos 3D: Z-Anatomy (CC BY-SA 4.0), a partir do BodyParts3D (DBCLS, CC BY-SA 2.1 JP).</p>`);
+    <h3>Créditos</h3><p class="pnota">Modelos 3D: Z-Anatomy (CC BY-SA 4.0), derivados do BodyParts3D (DBCLS). Modificados.</p><div class="acoes"><button data-m="creditos">Créditos e licenças completos</button></div>`);
   $('tabbar').dataset.fixa = 'mais'; marcarTab();
 // placeholder curto no celular e corpo inteiro enquadrado acima das abas
 const ajustarCel = () => { $('q').placeholder = CEL() ? 'Buscar…' : 'Buscar osso ou músculo'; if (CEL() && !painelAberto) enquadrarP('corpo', 'ant'); };
@@ -2211,8 +2211,28 @@ addEventListener('versao', ajustarCel); ajustarCel();
     if (b.dataset.m === 'versao') { escolherVersao(CEL() ? 'pc' : 'cel'); abaMais(); }
     if (b.dataset.m === 'cheia') { (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}).finally(() => setTimeout(abaMais, 300)); }
     if (b.dataset.m === 'padrao') padrao();
+    if (b.dataset.m === 'creditos') mostrarCreditos();
   };
 }
+// créditos e licenças: atribuição exigida pela CC BY-SA 4.0 (autor, licença com link e aviso de modificação)
+function mostrarCreditos() {
+  document.querySelectorAll('#regioes .chip').forEach(b => b.classList.remove('on'));
+  const L = (t, u) => `<a href="${u}" target="_blank" rel="noopener">${t}</a>`;
+  painelP('Créditos e licenças', '<span class="tag">atribuições</span>', `
+    <h3>Modelos 3D</h3>
+    <p><b>Z-Anatomy</b>, the libre 3D atlas of anatomy, de Gauthier Kervyn e colaboradores (${L('z-anatomy.com', 'https://www.z-anatomy.com/')}), licença ${L('CC BY-SA 4.0', 'https://creativecommons.org/licenses/by-sa/4.0/deed.pt-br')}.</p>
+    <p>Derivado do <b>BodyParts3D</b>, © The Database Center for Life Science (DBCLS), ${L('dbarchive.biosciencedbc.jp', 'https://dbarchive.biosciencedbc.jp/en/bodyparts3d/')}, licença ${L('CC BY 4.0', 'https://creativecommons.org/licenses/by/4.0/deed.pt-br')} (versões anteriores em CC BY-SA 2.1 JP).</p>
+    <p><b>Modificações feitas aqui:</b> seleção de ossos, músculos, ligamentos e áreas de origem e inserção; conversão para glTF com compressão; nomes em português; e animação dos ossos e deformação dos músculos em tempo real. Os arquivos de modelo modificados são distribuídos sob a mesma licença CC BY-SA 4.0: ${['ossos', 'musculos', 'articulacoes', 'insercoes'].map(n => L(n + '.glb', 'modelo/' + n + '.glb')).join(', ')}.</p>
+    <p class="pnota">Os autores dos modelos não endossam este site nem o uso que ele faz dos modelos.</p>
+    <h3>Bibliotecas e fontes</h3>
+    <ul><li>${L('three.js', 'https://threejs.org/')}: licença MIT, © 2010–2026 three.js authors.</li>
+      <li>meshoptimizer (decodificador): licença MIT, © Arseny Kapoulkine.</li>
+      <li>Fontes Bricolage Grotesque e Instrument Sans: ${L('SIL Open Font License 1.1', 'https://openfontlicense.org/')}.</li></ul>
+    <h3>Conteúdo</h3>
+    <p>As fichas, os textos, a organização do conteúdo, o design e o código do site são obra própria do Cinesiomecânica, com todos os direitos reservados. Isso não inclui os arquivos de modelo acima, que continuam livres sob a CC BY-SA 4.0. As fichas citam a bibliografia em que se baseiam (Moore, Neumann, Kapandji, entre outros).</p>
+    <p class="pnota">Material educativo: não substitui avaliação ou orientação de um profissional de saúde.</p>`);
+}
+document.querySelector('.cred').addEventListener('click', mostrarCreditos);
 function abrirTab(t) {
   delete $('tabbar').dataset.fixa;
   if (t === 'regioes') return abaRegioes();
@@ -2259,4 +2279,4 @@ new MutationObserver(() => $('painel').classList.remove('min', 'max')).observe($
 // prepara em segundo plano os pesos que deixam os músculos acompanharem os ossos
 setTimeout(() => POSE.pele(), 1200);
 aplicarVis();
-window.__cm = { MESH, E, abrir, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
+window.__cm = { MESH, E, abrir, mostrarCreditos, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };

@@ -20,5 +20,6 @@ Site estático (GitHub Pages). A pasta `fonte/` guarda os textos de cada região
 ## Créditos
 
 Modelos 3D: [Z-Anatomy](https://www.z-anatomy.com/) (CC BY-SA 4.0), derivados do BodyParts3D (DBCLS, CC BY-SA 2.1 JP).
-Os arquivos da pasta `modelo/` são obras derivadas e seguem a licença CC BY-SA 4.0.
+Os arquivos da pasta `modelo/` são obras derivadas e seguem a licença CC BY-SA 4.0 (detalhes em `modelo/LICENSE.txt`). Os ossículos da orelha média foram retirados, porque podem vir de um modelo com licença não comercial.
+O código, os textos, as fichas e o design do site são obra própria, com todos os direitos reservados.
 Biblioteca 3D: three.js (licença MIT, ver `lib/THREE-LICENSE`).

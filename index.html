@@ -53,7 +53,7 @@ button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
 .fontes{font-size:11.5px;color:var(--ink3);line-height:1.5;margin-top:14px}
 .carga{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg);transition:opacity .4s}.carga div{text-align:center}.carga b{display:block;font-size:22px;margin-bottom:6px}.carga span{color:var(--ink3);font-size:13px}
 .barra{width:220px;height:4px;background:var(--line);border-radius:2px;margin:14px auto 0;overflow:hidden}.barra i{display:block;height:100%;width:0;background:var(--ac);transition:width .2s}
-.cred{position:fixed;left:12px;bottom:calc(58px + env(safe-area-inset-bottom));font-size:10px;color:var(--ink3);z-index:3;max-width:60vw;line-height:1.3}
+.cred{text-align:left;cursor:pointer;background:none;border:0;padding:0;font-family:inherit;position:fixed;left:12px;bottom:calc(58px + env(safe-area-inset-bottom));font-size:10px;color:var(--ink3);z-index:3;max-width:60vw;line-height:1.3}
 .ferr{width:max-content;max-width:calc(100vw - 16px)}.ferr .chip{padding:8px 12px;font-size:12.5px;white-space:nowrap}
 .ferr .chip:disabled{opacity:.4}.ferr .chip:not(.on){color:var(--ink2)}
 #bTirar.on{background:var(--or);border-color:var(--or);color:#1a0b02}
@@ -191,6 +191,7 @@ html.cel .lista button{padding:12px 2px;font-size:15px}html.cel .lv summary{padd
 html.cel .movbar{top:calc(104px + env(safe-area-inset-top))!important;bottom:auto}
 html.cel #rot span{font-size:11.5px}
 @media(min-width:700px){html.cel .painel,html.cel .tabbar{left:50%;right:auto;width:min(620px,100vw);transform:translateX(-50%)}html.cel .painel{transform:translate(-50%,calc(100% + 80px))}html.cel .painel.on{transform:translateX(-50%)}}
+.p-b a{color:var(--ac);text-underline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 <script type="importmap">{"imports":{"three":"./lib/three.module.js","three/addons/":"./lib/addons/"}}</script>
@@ -227,7 +228,7 @@ html.cel #rot span{font-size:11.5px}
 <div class="dica" id="dica">Toque em uma estrutura · arraste para girar · pinça para zoom</div>
 <div class="toast" id="toast"></div>
 <div id="rot"></div>
-<div class="cred">Modelos: Z-Anatomy (CC BY-SA 4.0), a partir do BodyParts3D</div>
+<button class="cred" type="button" title="Ver créditos e licenças">Modelos 3D: Z-Anatomy (CC BY-SA 4.0), derivados do BodyParts3D · modificados · <u>créditos e licenças</u></button>
 <aside class="painel" id="painel" aria-live="polite"><div class="p-h"><div><h2 id="pT"></h2><div class="sub" id="pS"></div></div><button class="x" id="pX" aria-label="Fechar">×</button></div><div class="p-b" id="pB"></div></aside>
 <div class="carga" id="carga"><div><b>cinesio<span style="color:var(--ac)">mecânica</span></b><span id="cTxt">Carregando o esqueleto…</span><div class="barra"><i id="cBar"></i></div></div></div>
 <nav class="tabbar" id="tabbar" aria-label="Seções">
