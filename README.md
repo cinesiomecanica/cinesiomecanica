@@ -8,6 +8,9 @@ Atlas 3D interativo de anatomia, cinesiologia, biomecânica e postura.
 - **Agachamento:** cadeia fechada com quadril, joelho e tornozelo, barra alta, baixa e frontal.
 - **Articulações:** 57 movimentos (ombro, escápula, cotovelo, radioulnares, punho, quadril, joelho, tornozelo, pé, coluna cervical, torácica e lombar, pelve), cada um com plano e eixo desenhados no modelo, amplitude de referência e músculos agonistas.
 - **Movimento:** corpo inteiro com todos os músculos acompanhando os ossos (na GPU): elevação e abertura do braço com ritmo escapuloumeral, rosca, agachamento, flexão do tronco com ritmo lombopélvico e elevação dos calcanhares.
+- **Movimento livre:** controles para cada articulação em cada plano (ombro, escápula, cotovelo, antebraço, punho, quadril, joelho, tornozelo, coluna cervical, torácica e lombar, pelve), todos ao mesmo tempo, com plano e eixo desenhados, músculos do movimento coloridos e posições prontas de exercícios.
+- **Marcha:** o ciclo completo nas 8 fases de Perry, com ângulos do quadril, joelho e tornozelo, balanço dos braços, rotação e queda da pelve, músculos ativos e tipo de contração em cada fase.
+- **Deformação dos músculos:** músculos em leque (grande dorsal, peitoral, trapézio, glúteos) esticam ao longo das fibras; deltoide e manguito giram em volta da cabeça do úmero; a escápula contorna o gradil costal.
 - **Postura:** 17 desvios com o corpo posicionado, fios de prumo e ângulo Q medidos ao vivo, cadeias e manejo.
 
 Site estático (GitHub Pages). A pasta `fonte/` guarda os textos de cada região e os scripts que geram `dados.json`.
