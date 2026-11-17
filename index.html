@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cinesiomecânica · Atlas 3D</title>
+<meta name="description" content="Anatomia, cinesiologia e biomecânica em 3D: ossos, músculos, origens e inserções, planos e eixos.">
+<meta name="theme-color" content="#090d18">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Instrument+Sans:wght@400..700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1118;--bg2:#121b25;--card:#16212d;--line:#243344;--ink:#eef3f7;--ink2:#a9b6c3;--ink3:#73839a;--ac:#2fd3c6;--or:#ff6b1a;--mus:#c4473c;--osso:#e9e2d2;--ori:#ef4b3f;--ins:#3d8bfd}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--ink);font-family:Poppins,system-ui,sans-serif;-webkit-tap-highlight-color:transparent;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.top{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:linear-gradient(var(--bg) 40%,transparent);z-index:5}
+.marca{font-weight:700;font-size:17px;letter-spacing:-.02em;white-space:nowrap}.marca i{font-style:normal;color:var(--ac)}
+.busca{flex:1;position:relative;max-width:420px;margin-left:auto}
+.busca input{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:9px 14px 9px 36px;color:var(--ink);font:inherit;font-size:14px;outline:none}
+.busca input:focus{border-color:var(--ac)}
+.busca svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.6}
+.sug{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--card);border:1px solid var(--line);border-radius:14px;max-height:50vh;overflow:auto;display:none;box-shadow:0 10px 30px #0008}
+.sug button{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:9px 13px;font-size:14px;border-bottom:1px solid var(--line)}
+.sug button:hover,.sug button:focus{background:var(--bg2)}.sug small{color:var(--ink3);font-size:11.5px;white-space:nowrap}
+.chips{position:fixed;left:12px;top:calc(62px + env(safe-area-inset-top));display:flex;flex-direction:column;gap:6px;z-index:4}
+.chip{display:flex;align-items:center;gap:7px;background:#121b25d9;border:1px solid var(--line);border-radius:999px;padding:6px 12px 6px 9px;font-size:12.5px;font-weight:500;backdrop-filter:blur(6px)}
+.chip i{width:10px;height:10px;border-radius:50%;background:var(--k);box-shadow:0 0 0 2px #0006;opacity:.35}
+.chip.on i{opacity:1}.chip:not(.on){color:var(--ink3)}
+.reg{position:fixed;right:12px;top:calc(62px + env(safe-area-inset-top));display:flex;flex-direction:column;gap:6px;z-index:4;align-items:flex-end}
+.reg .chip{padding:6px 12px}.reg .chip.on{border-color:var(--ac);color:var(--ac)}
+.ferr{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));display:flex;gap:6px;z-index:4}
+.ferr .chip{padding:7px 13px}
+.painel{position:fixed;left:0;right:0;bottom:0;max-height:50vh;background:var(--card);border-top:1px solid var(--line);border-radius:20px 20px 0 0;z-index:6;transform:translateY(105%);transition:transform .28s ease;display:flex;flex-direction:column;box-shadow:0 -10px 40px #0009}
+.painel.on{transform:none}
+@media(min-width:900px){.painel{left:auto;right:16px;bottom:16px;top:calc(70px + env(safe-area-inset-top));width:400px;max-height:none;border:1px solid var(--line);border-radius:20px;transform:translateX(120%)}.painel.on{transform:none}.reg{right:430px}}
+.p-h{padding:14px 16px 10px;display:flex;gap:10px;align-items:flex-start;border-bottom:1px solid var(--line)}
+.p-h h2{font-size:19px;line-height:1.25;letter-spacing:-.01em}.p-h .sub{font-size:12px;color:var(--ink3);margin-top:3px}
+.p-h .x{margin-left:auto;width:32px;height:32px;border-radius:50%;background:var(--bg2);font-size:18px;flex:none}
+.p-b{overflow:auto;padding:12px 16px 22px;-webkit-overflow-scrolling:touch}
+.tag{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--bg2);color:var(--ink2);margin-right:4px}
+.p-b p{font-size:14px;line-height:1.55;color:var(--ink2);margin:8px 0}.p-b p b{color:var(--ink)}
+.p-b h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ac);margin:16px 0 6px}
+.oi{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:13.5px;line-height:1.45}
+.oi span{font-weight:600}.oi .o{color:var(--ori)}.oi .e{color:var(--ins)}.oi .n{color:#f4c542}
+.ac{width:100%;border-collapse:collapse;font-size:13px}.ac th,.ac td{text-align:left;padding:7px 4px;border-bottom:1px solid var(--line);vertical-align:top}.ac th{color:var(--ink3);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.pl{display:inline-block;font-size:11px;padding:1px 7px;border-radius:6px;font-weight:600}.pl.sagital{background:#2fd3c626;color:#2fd3c6}.pl.frontal{background:#ff6b1a26;color:#ff8a45}.pl.transverso{background:#a77bff26;color:#b896ff}
+.acoes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.acoes button{background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:12.5px;font-weight:500}.acoes button.pri{background:var(--ac);border-color:var(--ac);color:#05201e}
+.lista button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 2px;border-bottom:1px solid var(--line);font-size:14px}.lista button i{width:8px;height:8px;border-radius:50%;background:var(--mus);flex:none}.lista button i.os{background:var(--osso)}
+.fontes{font-size:11.5px;color:var(--ink3);line-height:1.5;margin-top:14px}
+.carga{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg);transition:opacity .4s}.carga div{text-align:center}.carga b{display:block;font-size:22px;margin-bottom:6px}.carga span{color:var(--ink3);font-size:13px}
+.barra{width:220px;height:4px;background:var(--line);border-radius:2px;margin:14px auto 0;overflow:hidden}.barra i{display:block;height:100%;width:0;background:var(--ac);transition:width .2s}
+.cred{position:fixed;left:12px;bottom:calc(58px + env(safe-area-inset-bottom));font-size:10px;color:var(--ink3);z-index:3;max-width:60vw;line-height:1.3}
+.ferr{width:max-content;max-width:calc(100vw - 16px)}.ferr .chip{padding:8px 12px;font-size:12.5px;white-space:nowrap}
+.ferr .chip:disabled{opacity:.4}.ferr .chip:not(.on){color:var(--ink2)}
+#bTirar.on{background:var(--or);border-color:var(--or);color:#1a0b02}
+.movbar{display:none}@media(max-width:899px){.movbar{top:calc(62px + env(safe-area-inset-top));bottom:auto}}body.mov .movbar{display:flex}body.mov #ferr,body.mov .chips,body.mov .reg,body.mov .cred{display:none}
+body.tirar #c{cursor:crosshair}
+.toast{position:fixed;left:50%;top:calc(66px + env(safe-area-inset-top));transform:translate(-50%,-8px);background:#121b25f0;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:12.5px;z-index:7;opacity:0;transition:.25s;pointer-events:none;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+#rot{position:fixed;inset:0;pointer-events:none;z-index:3}
+#rot span{position:absolute;transform:translate(-50%,-50%);font-size:12px;font-weight:600;padding:2px 7px;border-radius:7px;background:#0b1118cc;white-space:nowrap}
+.mv-ang{display:flex;align-items:baseline;gap:10px;margin:4px 0 2px}.mv-ang b{font-size:40px;font-weight:700;color:var(--ac);letter-spacing:-.03em;line-height:1}.mv-ang span{font-size:13px;color:var(--ink3)}
+.mv input[type=range]{width:100%;accent-color:var(--ac);margin:6px 0 2px}
+.mv-ctl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;font-size:13px;color:var(--ink2);margin-top:8px}.mv-ctl output{font-weight:600;color:var(--ink)}.mv-ctl input{grid-column:1/-1}
+.seg{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.seg button{border:1px solid var(--line);background:var(--bg2);border-radius:999px;padding:6px 11px;font-size:12.5px}.seg button.on{border-color:var(--ac);color:var(--ac)}
+.kp{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.kp div{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:10px 12px}.kp small{display:block;font-size:11px;color:var(--ink3);line-height:1.3}.kp b{font-size:20px;letter-spacing:-.02em}.kp b i{font-style:normal;font-size:12px;color:var(--ink3);font-weight:500;margin-left:3px}
+.mt td:nth-child(n+2),.mt th:nth-child(n+2){text-align:right;white-space:nowrap}.mt .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+#graf{width:100%;height:170px;display:block;margin-top:6px}
+.leg{display:flex;gap:12px;font-size:11.5px;color:var(--ink3);flex-wrap:wrap}.leg i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.agm{margin:8px 0 10px}.agm-t{display:flex;justify-content:space-between;font-size:13.5px}.agm-t i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px}.agm-b{height:8px;background:var(--bg2);border-radius:4px;overflow:hidden;margin:5px 0 3px}.agm-b i{display:block;height:100%;border-radius:4px;transition:width .15s}.agm small{font-size:11.5px;color:var(--ink3);line-height:1.4;display:block}
+.ag4 b{font-size:22px}
+.zona{background:var(--bg2);border-left:3px solid #f4c542;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px;line-height:1.45;color:var(--ink2)}.zona b{color:var(--ink)}.zona.ok{border-left-color:var(--ac)}
+.pleg{background:var(--bg2);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:13px;line-height:1.5}.pleg b{display:block;font-size:12.5px}.pleg b i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}.pleg span{color:var(--ink2)}
+.p-b ul{margin:6px 0 8px 18px;font-size:13.5px;line-height:1.5;color:var(--ink2)}.p-b ul b{color:var(--ink)}
+.pctl{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:10px 12px 12px;margin-bottom:8px}
+.pctl-t{display:flex;justify-content:space-between;font-size:13px;color:var(--ink2)}.pctl-t output{font-weight:700;color:var(--ac);font-size:15px;font-variant-numeric:tabular-nums}
+.pctl input[type=range]{width:100%;accent-color:var(--ac);margin:8px 0 2px}
+.pq{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px}.pq div{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:8px 10px}.pq small{display:block;font-size:11px;color:var(--ink3);line-height:1.3}.pq b{font-size:22px;color:#ffd43b;font-variant-numeric:tabular-nums}
+.pnota{font-size:12.5px!important;color:var(--ink3)!important}
+.pleit{margin-top:10px}.pleit td:last-child,.pleit th:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}.pleit th:last-child{font-weight:500}
+.man{display:grid;grid-template-columns:1fr 1fr;gap:8px}.man>div{background:var(--bg2);border-radius:12px;padding:9px 10px}.man b{font-size:12.5px}.man ul{margin:4px 0 0 16px;font-size:12.5px}
+@media(max-width:420px){.man{grid-template-columns:1fr}}
+.aviso{font-size:12px;color:var(--ink3);line-height:1.5;margin-top:10px;border-left:2px solid var(--line);padding-left:10px}
+.dica{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom));background:#121b25e6;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:12.5px;color:var(--ink2);z-index:3;white-space:nowrap;transition:opacity .5s}
+
+/* ===== identidade: instrumento de medição do movimento =====
+   Fundo azul-tinta com malha de papel milimetrado; âmbar = medida, seleção e ação; verde-água = eixos.
+   Layout: barra superior (marca, seções, busca), camadas à esquerda, ferramentas num só bloco embaixo, painel à direita (folha inferior no celular). */
+:root{--bg:#090d18;--bg2:#10162a;--card:#141b31;--line:#263153;--ink:#f2f4fa;--ink2:#aeb7cf;--ink3:#7480a0;--ac:#ffb938;--ax:#2fd3c6;--f-d:'Bricolage Grotesque',system-ui,sans-serif;--f-b:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;color-scheme:dark}
+html,body{font-family:var(--f-b);background:#090d18}
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background:
+  linear-gradient(#ffffff06 1px,transparent 1px) 0 0/100% 40px,linear-gradient(90deg,#ffffff06 1px,transparent 1px) 0 0/40px 100%,
+  radial-gradient(110% 80% at 50% 36%,#1b2647 0%,#0d1326 52%,#070a13 100%)}
+#c{z-index:1}
+button:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.top{flex-wrap:wrap;gap:6px 14px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:linear-gradient(#090d18f5 60%,#090d1800)}
+.marca{display:flex;align-items:center;gap:7px;font-family:var(--f-d);font-weight:800;font-size:19px;letter-spacing:-.035em}.marca i{color:var(--ac)}
+.reg{position:static;flex-direction:row;align-items:center;gap:0;margin-left:6px}
+.reg .chip{background:none;border:0;border-radius:10px;padding:8px 12px;font-size:14px;font-weight:500;color:var(--ink2);backdrop-filter:none;position:relative;white-space:nowrap}
+.reg .chip:hover{color:var(--ink)}
+.reg .chip.on{color:var(--ink);font-weight:600}.reg .chip.on::after{content:"";position:absolute;left:12px;right:12px;bottom:1px;height:2.5px;border-radius:2px;background:var(--ac)}
+.busca input{border-radius:12px;background:#10162acc}
+.chips{top:calc(72px + env(safe-area-inset-top))}
+.chip{background:#141b31d9;font-family:var(--f-b)}
+.chips .chip.on{border-color:#3b4a78;color:var(--ink)}.chips .chip:not(.on){color:var(--ink3)}
+.ferr{background:#141b31e8;border:1px solid var(--line);border-radius:16px;padding:4px;gap:2px;backdrop-filter:blur(10px);box-shadow:0 8px 30px #0007}
+.ferr .chip{background:none;border:0;border-radius:12px;backdrop-filter:none}
+.ferr .chip.on{background:var(--ac);color:#1a1203}
+.movbar{background:none;border:0;box-shadow:none;padding:0;gap:6px;backdrop-filter:none}.movbar.ferr{bottom:calc(14px + env(safe-area-inset-bottom))}.movbar .chip{background:#141b31e8;border:1px solid var(--line);border-radius:999px}.movbar .chip.on{background:var(--ac);border-color:var(--ac)}
+.painel{background:#141b31f7;backdrop-filter:blur(14px)}
+.p-h{position:relative;cursor:default}
+.p-h h2{font-family:var(--f-d);font-weight:700;font-size:21px;letter-spacing:-.025em;text-wrap:balance}
+.p-b h3{display:flex;align-items:center;gap:8px;color:var(--ink3);font-size:11.5px;margin:18px 0 6px}.p-b h3::before{content:"";width:14px;height:2px;border-radius:2px;background:var(--ac);flex:none}
+.tag{background:#ffb93822;color:var(--ac)}
+.acoes button.pri{color:#1a1203;font-weight:600}
+.mv-ang b,.kp b,.pq b,.carga b,.pctl-t output{font-family:var(--f-d)}
+.mv-ang b{color:var(--ac)}
+.seg button.on{border-color:var(--ac);color:var(--ac);background:#ffb93814}
+.sug{border-radius:12px}
+.toast{background:#141b31f2}
+#rot span{background:#090d18d9;border:1px solid #ffffff14;font-variant-numeric:tabular-nums}
+.barra i{background:var(--ac)}
+@media(max-width:899px){
+  .marca{font-size:17px}.busca{max-width:none}
+  .reg{order:4;width:calc(100% + 32px);margin:0 -16px;padding:0 8px;overflow-x:auto;scrollbar-width:none}.reg::-webkit-scrollbar{display:none}
+  .chips{top:calc(100px + env(safe-area-inset-top));left:0;right:0;padding:0 12px;flex-direction:row;overflow-x:auto;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
+  .chips .chip{padding:5px 10px 5px 8px;font-size:12px;white-space:nowrap;flex:none}
+  .p-h{cursor:pointer;padding-top:18px}.p-h::before{content:"";position:absolute;top:7px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:2px;background:var(--line)}
+  .painel{transition:transform .28s ease,max-height .28s ease}.painel.min{max-height:70px}.painel.min .p-b{display:none}
+  body:has(.painel.on) .ferr{bottom:calc(50vh + 10px)}body:has(.painel.on.min) .ferr{bottom:80px}
+  body:has(.painel.on) .cred,body:has(.painel.on) .dica{display:none}
+  body .movbar.ferr,body:has(.painel.on) .movbar.ferr{top:calc(58px + env(safe-area-inset-top));bottom:auto}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<script type="importmap">{"imports":{"three":"./lib/three.module.js","three/addons/":"./lib/addons/"}}</script>
+</head>
+<body>
+<canvas id="c" aria-label="Modelo anatômico 3D"></canvas>
+<header class="top">
+  <div class="marca"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 9.5a8.5 8.5 0 0 1 17 0" stroke="var(--ac)" stroke-width="1.6" stroke-linecap="round" opacity=".6"/><path d="M12 2.5v12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 14.2l-3.1 4a3.9 3.9 0 0 0 6.2 0z" fill="var(--ac)"/></svg><span>cinesio<i>mecânica</i></span></div>
+  <nav class="reg" id="regioes" aria-label="Seções">
+    <button class="chip" data-r="corpo">Atlas</button>
+    <button class="chip" data-r="ombro">Ombro</button>
+    <button class="chip" data-r="cotovelo">Cotovelo</button>
+    <button class="chip" data-r="joelho">Joelho</button>
+    <button class="chip" data-r="postura">Postura</button>
+  </nav>
+  <div class="busca"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Buscar osso ou músculo" autocomplete="off"><div class="sug" id="sug"></div></div>
+</header>
+<div class="chips" id="camadas">
+  <button class="chip on" data-c="ossos" style="--k:var(--osso)"><i></i>Ossos</button>
+  <button class="chip on" data-c="musculos" style="--k:var(--mus)"><i></i>Músculos</button>
+  <button class="chip" data-c="insercoes" style="--k:linear-gradient(90deg,var(--ori) 50%,var(--ins) 50%)"><i></i>Origem e inserção</button>
+  <button class="chip" data-c="articulacoes" style="--k:#d9c27a"><i></i>Ligamentos</button>
+</div>
+<div class="ferr" id="ferr">
+  <button class="chip" id="bTirar" title="Toque nas estruturas para tirá-las e ver o que está embaixo">✂︎ Tirar</button>
+  <button class="chip" id="bVoltar" disabled>↶ Voltar</button>
+  <button class="chip" id="bPadrao">⟲ Padrão</button>
+  <button class="chip" id="bLado">Só direito</button>
+</div>
+<div class="ferr movbar" id="movbar"><button class="chip" id="bDados">☰ Dados</button><button class="chip on" id="bSairMov">✕ Sair do modo movimento</button></div>
+<div class="dica" id="dica">Toque em uma estrutura · arraste para girar · pinça para zoom</div>
+<div class="toast" id="toast"></div>
+<div id="rot"></div>
+<div class="cred">Modelos: Z-Anatomy (CC BY-SA 4.0), a partir do BodyParts3D</div>
+<aside class="painel" id="painel" aria-live="polite"><div class="p-h"><div><h2 id="pT"></h2><div class="sub" id="pS"></div></div><button class="x" id="pX" aria-label="Fechar">×</button></div><div class="p-b" id="pB"></div></aside>
+<div class="carga" id="carga"><div><b>cinesio<span style="color:var(--ac)">mecânica</span></b><span id="cTxt">Carregando o esqueleto…</span><div class="barra"><i id="cBar"></i></div></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
