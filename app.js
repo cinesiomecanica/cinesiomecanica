@@ -175,7 +175,7 @@ function abrir(nome) {
   } else if (e.c === 'insercoes') {
     h += `<p>Área em que o músculo se prende ao osso: <b style="color:${e.t === 'origem' ? 'var(--ori)' : 'var(--ins)'}">${e.t}</b>. Na origem fica a parte que normalmente se move menos; na inserção, a que mais se move.</p>`;
   } else {
-    h += `<p style="color:var(--ink3)">O conteúdo detalhado desta estrutura chega com as próximas regiões. Já estão completos o ombro, o cotovelo e o joelho.</p>`;
+    h += `<p style="color:var(--ink3)">Estrutura do modelo sem ficha própria.</p>`;
   }
   h += `<div class="acoes">`;
   if (e.c === 'musculos') h += `<button class="pri" data-a="oi">Ver origem e inserção</button>`;
@@ -2170,4 +2170,4 @@ new MutationObserver(() => $('painel').classList.remove('min')).observe($('pT'),
 // prepara em segundo plano os pesos que deixam os músculos acompanharem os ossos
 setTimeout(() => POSE.pele(), 1200);
 aplicarVis();
-window.__cm = { MESH, E, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
+window.__cm = { MESH, E, abrir, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
