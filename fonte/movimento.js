@@ -84,16 +84,83 @@ const MOVS = [
     fontes: ['Neumann, cap. 14.', 'Kapandji. Anatomia funcional, vol. 2.'] },
 ];
 let movAtivo = null;
-function listaMov() {
+let abaMov = 'art', filtroPl = '';
+function listaMov(aba) {
+  if (aba) abaMov = aba;
   limparDesvio(); isolado = null; filtroInsercao = null; aplicarVis(); destacar(null);
   document.querySelectorAll('#regioes .chip').forEach(b => b.classList.toggle('on', b.dataset.r === 'movimento'));
-  voar([0, 0.9, 0], 3.7, new THREE.Vector3(-0.5, 0.1, 1));
-  const grupos = {}; MOVS.forEach(m => (grupos[m.grupo] = grupos[m.grupo] || []).push(m));
-  painelP('Corpo em movimento', '<span class="tag">cinesiologia</span>o corpo inteiro, com todos os músculos', `
-    <p>Escolha um movimento: todos os ossos e músculos se movem juntos. Os que trabalham aparecem em <b style="color:${CORES_M.ag}">âmbar (agonistas)</b>, <b style="color:${CORES_M.sin}">rosa (sinergistas)</b> e <b style="color:${CORES_M.est}">verde-água (estabilizadores)</b>, com os ângulos de cada articulação ao vivo.</p>
-    ${Object.entries(grupos).map(([g, ms]) => `<h3>${esc(g)}</h3><div class="lista">${ms.map(m => `<button data-m="${m.id}"><i style="background:${CORES_M.ag}"></i>${esc(m.nome)}</button>`).join('')}</div>`).join('')}
-    <div class="aviso">O movimento é um modelo de estudo: cada osso segue ângulos médios da literatura e os músculos se deformam acompanhando os ossos vizinhos, sem simular contração.</div>`);
-  $('pB').onclick = ev => { const b = ev.target.closest('button[data-m]'); if (b) mostrarMov(b.dataset.m); };
+  enquadrarP('corpo', 'frente');
+  let corpo = '';
+  if (abaMov === 'art') {
+    const grupos = {}; CAT.filter(m => !filtroPl || m.plano === filtroPl).forEach(m => (grupos[m.art] = grupos[m.art] || []).push(m));
+    corpo = `<p>Todos os movimentos de cada articulação. Ao abrir um, o corpo se move e o <b>plano</b> (disco) e o <b>eixo</b> (linha) aparecem desenhados na articulação. O eixo é sempre perpendicular ao plano.</p>
+      <div class="seg" id="fPl"><button data-pl="" class="${!filtroPl ? 'on' : ''}">Todos os planos</button>${Object.entries(PLANOS).map(([k, [n]]) => `<button data-pl="${k}" class="${filtroPl === k ? 'on' : ''}"><i class="dotp" style="background:${PLANOS[k][2]}"></i>${n[0].toUpperCase() + n.slice(1)}</button>`).join('')}</div>
+      ${Object.entries(grupos).map(([g, ms]) => `<h3>${esc(g)}</h3><div class="lista">${ms.map(m => `<button data-a="${m.id}"><i style="background:${PLANOS[m.plano][2]}"></i><span class="lnome">${esc(m.nome)}</span><span class="pl ${PLANOS[m.plano][0]}">${PLANOS[m.plano][0]}</span></button>`).join('')}</div>`).join('')}
+      <div class="aviso">O plano e o eixo descrevem o movimento a partir da posição em que ele começa. Quando o segmento muda de posição (por exemplo, a rotação do ombro com o braço ao lado do corpo ou abduzido a 90°), o plano muda junto.</div>`;
+  } else {
+    const grupos = {}; MOVS.forEach(m => (grupos[m.grupo] = grupos[m.grupo] || []).push(m));
+    corpo = `<p>Movimentos de exercícios com várias articulações ao mesmo tempo. Os músculos que trabalham aparecem em <b style="color:${CORES_M.ag}">âmbar (agonistas)</b>, <b style="color:${CORES_M.sin}">rosa (sinergistas)</b> e <b style="color:${CORES_M.est}">verde-água (estabilizadores)</b>.</p>
+      ${Object.entries(grupos).map(([g, ms]) => `<h3>${esc(g)}</h3><div class="lista">${ms.map(m => `<button data-m="${m.id}"><i style="background:${CORES_M.ag}"></i>${esc(m.nome)}</button>`).join('')}</div>`).join('')}`;
+  }
+  painelP('Corpo em movimento', '<span class="tag">cinesiologia</span>planos, eixos e músculos', `
+    <div class="abas"><button data-aba="art" class="${abaMov === 'art' ? 'on' : ''}">Articulações (${CAT.length})</button><button data-aba="ex" class="${abaMov === 'ex' ? 'on' : ''}">Exercícios (${MOVS.length})</button></div>
+    ${corpo}
+    <div class="aviso">Modelo de estudo: os ossos seguem ângulos médios da literatura e os músculos se deformam acompanhando os ossos, sem simular contração.</div>`);
+  $('pB').onclick = ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.aba) return listaMov(b.dataset.aba);
+    if (b.dataset.pl !== undefined) { filtroPl = b.dataset.pl; return listaMov(); }
+    if (b.dataset.m) return mostrarMov(b.dataset.m);
+    if (b.dataset.a) return mostrarArt(b.dataset.a);
+  };
+}
+const EIXOS = { X: new THREE.Vector3(1, 0, 0), Y: new THREE.Vector3(0, 1, 0), Z: new THREE.Vector3(0, 0, 1) };
+async function mostrarArt(id) {
+  const m = CAT.find(x => x.id === id); if (!m) return;
+  await peleProntaToast(); limparDesvio(); movAtivo = m;
+  const lado = /^(omb|esc|cot|ru|pun|qua|joe|tor-df|tor-pf|pe-)/.test(m.id) ? 'direito' : null, pl = PLANOS[m.plano];
+  colorir({ ag: m.mus }, CORES_M, lado); isolado = null; filtroInsercao = null;
+  if (!visCamada.musculos) { visCamada.musculos = true; document.querySelector('[data-c=musculos]').classList.add('on'); }
+  const dir = new THREE.Vector3();
+  const rot = (A, mk) => {
+    const p = mk[m.piv].p; if (Array.isArray(m.eixo)) dir.subVectors(mk[m.eixo[1]].p, mk[m.eixo[0]].p); else dir.copy(EIXOS[m.eixo]);
+    PE.atualizar(p, dir, pl[2], RAIO_PE[m.quadro] || 0.25);
+    return [{ p, t: `${m.nome.split(' (')[0].toLowerCase()} ${Math.round(POSE.S.k * m.max)}°`, c: pl[2] }];
+  };
+  POSE.iniciar({}, [], [], { gen: k => m.gen(k * m.max), rot, todos: true }); PE.mostrar(true);
+  aplicarVis(); destacar(null);
+  const pv = POSE.S.mk[m.piv].p.clone(); if (m.quadro === 'antebraco') pv.y -= 0.06;
+  enquadrarP(m.quadro, m.vista, /^(pes|antebraco|braco|cabeca)$/.test(m.quadro) ? pv : null);
+  const irmaos = CAT.filter(x => x.art === m.art), i = irmaos.indexOf(m);
+  painelP(m.nome, `<span class="tag">${esc(m.art)}</span>`, `
+    <div class="acoes" style="margin:0 0 8px"><button id="bVoltaM">← Articulações</button>${i > 0 ? `<button data-a="${irmaos[i - 1].id}">‹ ${esc(irmaos[i - 1].nome.split(' (')[0])}</button>` : ''}${i < irmaos.length - 1 ? `<button data-a="${irmaos[i + 1].id}">${esc(irmaos[i + 1].nome.split(' (')[0])} ›</button>` : ''}</div>
+    <div class="pe-cab" style="--pc:${pl[2]}"><div><small>Plano</small><b>${pl[0]}</b></div><div><small>Eixo</small><b>${pl[1]}</b></div></div>
+    <div class="pctl"><div class="pctl-t"><span>Ângulo</span><output id="mK">0°</output></div>
+      <input id="mKs" type="range" min="0" max="100" step="1" value="0" aria-label="Ângulo do movimento">
+      <div class="seg"><button data-k="0">Início</button><button data-k="1">Fim</button><button id="mPlay" class="on">❚❚ Pausar</button></div></div>
+    <div class="kp mt4"><div><small>Amplitude de referência</small><b style="font-size:16px">${esc(m.amp)}</b></div></div>
+    <p>${esc(m.desc)}</p>
+    <h3>Agonistas</h3><div class="pleg"><b style="color:${CORES_M.ag}"><i style="background:${CORES_M.ag}"></i>Músculos que fazem o movimento</b><span>${m.mus.map(b => esc(nomePt(b))).join(' · ')}</span></div>
+    <h3>Como ler o desenho</h3>
+    <p>O <b style="color:${pl[2]}">disco</b> é o plano em que o segmento se move; a <b style="color:${pl[2]}">linha</b> que o atravessa é o eixo, em torno do qual o segmento gira. Plano e eixo são sempre perpendiculares: movimentos no plano <span class="pl sagital">sagital</span> giram em torno do eixo látero-lateral, no <span class="pl frontal">frontal</span> em torno do anteroposterior e no <span class="pl transverso">transverso</span> em torno do longitudinal.</p>
+    <div class="fontes">Fontes: ${FONTES_CAT.map(esc).join(' · ')} · Modelo 3D: Z-Anatomy (CC BY-SA 4.0).</div>`);
+  POSE.S.aoMudar = k => {
+    if (!$('mKs') || movAtivo !== m) return;
+    $('mK').textContent = Math.round(k * m.max) + '°'; if (document.activeElement !== $('mKs')) $('mKs').value = Math.round(k * 100);
+  };
+  POSE.S.aoMudar(0);
+  const dur = 1300 + m.max * 9;
+  const play = on => { $('mPlay').classList.toggle('on', on); $('mPlay').textContent = on ? '❚❚ Pausar' : '▶ Reproduzir'; on ? POSE.animar(POSE.S.k > 0.5 ? 0 : 1, true, dur) : POSE.parar(); };
+  $('pB').onclick = ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.id === 'bVoltaM') return listaMov('art');
+    if (b.dataset.a) return mostrarArt(b.dataset.a);
+    if (b.id === 'mPlay') return play(!b.classList.contains('on'));
+    if (b.dataset.k !== undefined) { play(false); POSE.animar(+b.dataset.k); }
+  };
+  $('mKs').oninput = e => { play(false); POSE.aplicar(e.target.value / 100, false); };
+  $('mKs').onchange = e => POSE.aplicar(e.target.value / 100, true);
+  POSE.animar(1, true, dur);
 }
 async function mostrarMov(id) {
   const m = MOVS.find(x => x.id === id); if (!m) return;
@@ -127,7 +194,7 @@ async function mostrarMov(id) {
   const play = on => { $('mPlay').classList.toggle('on', on); $('mPlay').textContent = on ? '❚❚ Pausar' : '▶ Reproduzir'; on ? POSE.animar(POSE.S.k > 0.5 ? 0 : 1, true, m.dur) : POSE.parar(); };
   $('pB').onclick = ev => {
     const b = ev.target.closest('button'); if (!b) return;
-    if (b.id === 'bVoltaM') return listaMov();
+    if (b.id === 'bVoltaM') return listaMov('ex');
     if (b.id === 'mPlay') return play(!b.classList.contains('on'));
     if (b.dataset.k !== undefined) { play(false); POSE.animar(+b.dataset.k); }
   };

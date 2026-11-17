@@ -3,8 +3,8 @@ const POST = DADOS.posturas; let desvioAtivo = null;
 const CORES_P = { enc: '#ff8a3d', alo: '#4dabf7', ten: '#c084fc' };
 const ROT_P = { enc: 'Encurtados', alo: 'Alongados ou enfraquecidos', ten: 'Tensionados (hiperativos)' };
 const LOCAIS = ['Pé e tornozelo', 'Joelho', 'Quadril', 'Pelve e lombar', 'Pelve e tronco', 'Coluna torácica', 'Coluna (plano frontal)', 'Cintura escapular', 'Coluna cervical', 'Padrão global do tronco superior'];
-const QUADRO = { pes: [0.32, 0.78], ombro: [1.5, 1.5], pernas: [0.56, 1.22], corpo: [0.9, 1.92], alto: [1.08, 2.32], tronco: [1.22, 1.0], braco: [1.2, 1.25], cabeca: [1.47, 0.62] };   // [altura do centro, altura visível] em metros
-const VISTAS = { lat: [-1, 0.06, 0.14], post: [0.14, 0.08, -1], ant: [-0.22, 0.08, 1], obl: [0.8, 0.28, -1], frente: [-0.75, 0.16, 0.65] };
+const QUADRO = { pes: [0.25, 0.75, -0.1], antebraco: [0.86, 0.62, -0.24], ombro: [1.5, 1.5], pernas: [0.56, 1.22], corpo: [0.9, 1.92], alto: [1.08, 2.32], tronco: [1.22, 1.0], braco: [1.2, 1.1, -0.12], cabeca: [1.47, 0.62] };   // [altura do centro, altura visível] em metros
+const VISTAS = { lat: [-1, 0.06, 0.14], post: [0.14, 0.08, -1], ant: [-0.22, 0.08, 1], obl: [0.8, 0.28, -1], frente: [-0.75, 0.16, 0.65], alto: [-0.55, 1.15, 0.8] };
 // Pose de cada desvio no grau máximo (graus; cm em "dentro", "tras", "comp" e "elev"). col: [flexão(+)/extensão(-), inclinação lateral, rotação axial] somados na região.
 const POSES = {
   'pe-plano': { pe: { ev: 10, abd: 6 }, perna: { tibRot: 7, femRot: 4, dentro: 1.2 }, pelve: { ant: 3 }, col: { lum: [-3] }, fer: ['post', 'q'], vista: 'post', quadro: 'pernas' },
@@ -29,12 +29,16 @@ const FER_N = { lat: 'Prumo lateral', post: 'Prumo posterior', q: 'Ângulo Q' };
 
 // Pesos de pele (quanto cada vértice de músculo segue cada osso). Roda num Web Worker; o código vai para o worker pelo toString().
 function* pesosGen(d) {
-  const { px, py, pz, ps, cel, nseg, FY, malhas, segs } = d, U = FY.length - 1, mapa = new Map();
+  const { px, py, pz, ps, cel, nseg, FY, malhas, segs, pares } = d, U = FY.length - 1, mapa = new Map();
   const chave = (a, b, c) => (a + 512) | ((b + 512) << 10) | ((c + 512) << 20);
   for (let q = 0; q < px.length; q++) { const k = chave(Math.floor(px[q] / cel), Math.floor(py[q] / cel), Math.floor(pz[q] / cel)); let a = mapa.get(k); if (!a) mapa.set(k, a = []); a.push(q); }
   // cadeias dos membros: nível de cada segmento (escápula e clavícula → úmero → antebraço; pelve → coxa → perna → pé → dedos)
-  const NIVEL = { esc: 0, cla: 0, umero: 1, antebraco: 2, coxa: 1, perna: 2, pe: 3, dedos: 4 };
-  const info = ['campo', ...segs].map(n => { if (n === 'pelve') return { t: 'membro', c: '*', n: 0 }; const m = /^(esc|cla|umero|antebraco|coxa|perna|pe|dedos)([de])$/.exec(n); if (!m) return { t: 'tronco' }; return { t: 'membro', c: (m[1] === 'esc' || m[1] === 'cla' || m[1] === 'umero' || m[1] === 'antebraco' ? 'b' : 'p') + m[2], n: NIVEL[m[1]] }; });
+  const NIVEL = { esc: 0, cla: 0, umero: 1, ulna: 2, radio: 2, mao: 3, coxa: 1, perna: 2, pe: 3, dedos: 4 };
+  const info = ['campo', ...segs].map(n => { if (n === 'pelve') return { t: 'membro', c: '*', n: 0 }; const m = /^(esc|cla|umero|ulna|radio|mao|coxa|perna|pe|dedos)([de])$/.exec(n); if (!m) return { t: 'tronco' }; return { t: 'membro', c: (/^(esc|cla|umero|ulna|radio|mao)$/.test(m[1]) ? 'b' : 'p') + m[2], n: NIVEL[m[1]] }; });
+  // ossos intermediários de cada articulação (1/4, 1/2 e 3/4 da rotação): evitam que o músculo "murche" quando a articulação gira muito
+  const idxSeg = new Map(['campo', ...segs].map((n, i) => [n, i])), parMap = new Map();
+  idxSeg.set('tord', -2); idxSeg.set('tore', -3);   // tronco (para pares tronco → úmero)
+  for (const p of pares) { const a = idxSeg.get(p.a) ?? -1, b = idxSeg.get(p.b), o = { P: p.P, D: p.D, ombro: /^(esc|cla)/.test(p.a) }; parMap.set(a + '|' + b, { a, b, h: p.h, ...o, inv: false }); parMap.set(b + '|' + a, { a: b, b: a, h: [...p.h].reverse(), ...o, inv: true }); }
   const melhor = new Float32Array(nseg + 1), lista = [], cb = new Int16Array(16), cp = new Float32Array(16), livre = new Uint8Array(nseg + 1); let nc = 0;
   const add = (b, p) => { if (p <= 1e-6) return; for (let t = 0; t < nc; t++) if (cb[t] === b) { cp[t] += p; return; } if (nc < 16) { cb[nc] = b; cp[nc++] = p; } };
   let fj = 0, ff = 0;
@@ -56,44 +60,76 @@ function* pesosGen(d) {
     for (let k = 0; k < sel.length; k++) seg1(sel[k], peso * pw[k] / tot);
   }
   function maisPerto(x, y, z) { prox(x, y, z, 1, false); let m = -1, best = -1; for (let t = 0; t < nc; t++) if (cp[t] > best) { best = cp[t]; m = cb[t]; } nc = 0; return m >= nseg ? 0 : m + 1; }
+  // distribui "peso" ao longo da cadeia sa → (3 intermediários) → sb, na fração f (0 = sa, 1 = sb); noTronco: a ponta sa segue os ossos do tronco mais próximos
+  function cadeia(p, f, peso, x, y, z, noTronco) {
+    const k = Math.min(3, Math.floor(f * 4)), t = f * 4 - k;
+    const no = (j, w) => { if (w <= 1e-6) return; if (j === 0) { if (noTronco) prox(x, y, z, w, true); else seg1(p.a, w); } else if (j === 4) seg1(p.b, w); else add(nseg + U + 1 + p.h[j - 1], w); };
+    no(k, peso * (1 - t)); no(k + 1, peso * t);
+  }
+  // depois da proximidade: se os dois ossos principais forem os dois lados de uma articulação, troca pela cadeia de intermediários
+  function converter(x, y, z) {
+    let i1 = -1, i2 = -1; for (let t = 0; t < nc; t++) { if (cb[t] >= nseg) continue; if (i1 < 0 || cp[t] > cp[i1]) { i2 = i1; i1 = t; } else if (i2 < 0 || cp[t] > cp[i2]) i2 = t; }
+    if (i1 < 0 || i2 < 0) return; const p = parMap.get((cb[i1] + 1) + '|' + (cb[i2] + 1)); if (!p) return;
+    const w1 = cp[i1], w2 = cp[i2]; cp[i1] = 0; cp[i2] = 0; let f = w2 / (w1 + w2);
+    if (!p.ombro && p.P) { const fd = suave(-0.035, 0.035, (x - p.P[0]) * p.D[0] + (y - p.P[1]) * p.D[1] + (z - p.P[2]) * p.D[2]); f = 0.35 * f + 0.65 * (p.inv ? 1 - fd : fd); }
+    cadeia(p, f, w1 + w2, x, y, z, false);
+  }
+  const parTronco = sb => parMap.get((idxSeg.get(/^umero/.test(['campo', ...segs][sb]) ? 'tor' + ['campo', ...segs][sb].slice(-1) : 'pelve') ?? -9) + '|' + sb);
   const suave = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   for (let mi = 0; mi < malhas.length; mi++) {
     const { id, w, campo } = malhas[mi], n = w.length / 3, idx = new Uint8Array(n * 4), wt = new Float32Array(n * 4);
     // eixo mais longo do músculo e os ossos em cada ponta
-    let modo = 'prox', ax = 1, lo = 0, hi = 1, sA = 0, sB = 0;
+    let modo = 'prox', ax = 1, lo = 0, hi = 1, sA = 0, sB = 0, ptA = [0, 0, 0], ptB = [0, 0, 0], raioB = 0.15;
     if (!campo) {
       const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
       for (let i = 0; i < n; i++) for (let a = 0; a < 3; a++) { const v = w[3 * i + a]; if (v < mn[a]) mn[a] = v; if (v > mx[a]) mx[a] = v; }
       ax = [0, 1, 2].reduce((a, b) => (mx[b] - mn[b] > mx[a] - mn[a] ? b : a), 0); lo = mn[ax]; hi = mx[ax];
-      const votos = [new Map(), new Map()], passo = Math.max(1, Math.floor(n / 600));
-      for (let i = 0; i < n; i += passo) { const s = (w[3 * i + ax] - lo) / (hi - lo || 1), e = s < 0.12 ? 0 : s > 0.88 ? 1 : -1; if (e < 0) continue; const y = w[3 * i + 1]; fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); } const sg = maisPerto(w[3 * i], y, w[3 * i + 2]); votos[e].set(sg, (votos[e].get(sg) || 0) + 1); }
+      const votos = [new Map(), new Map()], passo = Math.max(1, Math.floor(n / 600)), pont = [[0, 0, 0, 0], [0, 0, 0, 0]];
+      for (let i = 0; i < n; i += passo) { const s = (w[3 * i + ax] - lo) / (hi - lo || 1), e = s < 0.12 ? 0 : s > 0.88 ? 1 : -1; if (e < 0) continue; const y = w[3 * i + 1]; fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); } const sg = maisPerto(w[3 * i], y, w[3 * i + 2]); votos[e].set(sg, (votos[e].get(sg) || 0) + 1); const pp = pont[e]; pp[0] += w[3 * i]; pp[1] += y; pp[2] += w[3 * i + 2]; pp[3]++; }
+      const tip = e => { const pp = pont[e]; return [pp[0] / (pp[3] || 1), pp[1] / (pp[3] || 1), pp[2] / (pp[3] || 1)]; }; ptA = tip(0); ptB = tip(1); raioB = Math.min(0.2, Math.max(0.08, 0.45 * (hi - lo)));
       const top = m => { let b = 0, c = -1; for (const [s, v] of m) if (v > c) { c = v; b = s; } return b; };
       sA = top(votos[0]); sB = top(votos[1]); const A = info[sA], B = info[sB];
       livre.fill(0);
-      if (A.t === 'membro' && B.t === 'membro' && (A.c === B.c || A.c === '*' || B.c === '*')) {
+      const braco = f => f.t === 'membro' && f.c[0] === 'b';
+      if ((A.c === '*' && braco(B)) || (B.c === '*' && braco(A))) {   // pelve → braço (grande dorsal): a pelve conta como tronco
+        modo = 'misto'; info.forEach((f, s) => { if (f.t === 'tronco' || f.c === '*') livre[s] = 1; });
+        if (braco(A)) { const t = sA; sA = sB; sB = t; lo = hi + (hi = lo, 0); ptB = tip(0); }
+      } else if (A.t === 'membro' && B.t === 'membro' && (A.c === B.c || A.c === '*' || B.c === '*')) {
         const ca = A.c === '*' ? B.c : A.c, dif = Math.abs(A.n - B.n);
         if (sA === sB) modo = 'rigido';
         else if (dif <= 1) modo = 'eixo';
         else { modo = 'cadeia'; const n0 = Math.min(A.n, B.n), n1 = Math.max(A.n, B.n); info.forEach((f, s) => { if (f.t === 'membro' && (f.c === ca || f.c === '*') && f.n >= n0 && f.n <= n1) livre[s] = 1; }); }
-      } else if (A.t !== B.t) { modo = 'misto'; info.forEach((f, s) => { if (f.t === 'tronco') livre[s] = 1; }); if (A.t === 'membro') { const t = sA; sA = sB; sB = t; lo = hi + (hi = lo, 0); } }
+      } else if (A.t !== B.t) { modo = 'misto'; info.forEach((f, s) => { if (f.t === 'tronco' || f.c === '*') livre[s] = 1; }); if (A.t === 'membro') { const t = sA; sA = sB; sB = t; lo = hi + (hi = lo, 0); ptB = tip(0); } }
     }
     for (let i = 0; i < n; i++) {
       const x = w[3 * i], y = w[3 * i + 1], z = w[3 * i + 2]; nc = 0;
       fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); }
       if (campo) campoAdd(1);
       else if (modo === 'rigido') seg1(sA, 1);
-      else if (modo === 'cadeia') prox(x, y, z, 1, true);
+      else if (modo === 'cadeia') { prox(x, y, z, 1, true); converter(x, y, z); }
       else {
         const sv = (w[3 * i + ax] - lo) / (hi - lo || 1), wb = suave(0.3, 0.72, sv);
-        if (modo === 'eixo') { seg1(sA, 1 - wb); seg1(sB, wb); }
-        else if (modo === 'misto') { const wm = suave(0.55, 0.93, sv); prox(x, y, z, 1 - wm, true); seg1(sB, wm); }   // ponta no tronco segue a coluna; ponta no membro segue o osso
-        else prox(x, y, z, 1, false);
+        if (modo === 'eixo') {
+          const p = parMap.get(sA + '|' + sB);
+          if (!p) { seg1(sA, 1 - wb); seg1(sB, wb); }
+          else if (p.ombro) {   // ombro: só a parte perto do tendão no úmero acompanha o braço
+            const um = p.inv ? ptA : ptB, f = 1 - suave(0.015, raioB, Math.hypot(x - um[0], y - um[1], z - um[2])); cadeia(p, p.inv ? 1 - f : f, 1, x, y, z, false);
+          } else {   // demais articulações: o que está além da articulação segue o osso de baixo, com transição de ~3,5 cm
+            const fd = suave(-0.035, 0.035, (x - p.P[0]) * p.D[0] + (y - p.P[1]) * p.D[1] + (z - p.P[2]) * p.D[2]); cadeia(p, p.inv ? 1 - fd : fd, 1, x, y, z, false);
+          }
+        }
+        else if (modo === 'misto') {   // ponta no tronco segue a coluna; ponta no membro segue o osso, passando pelos intermediários
+          const p = parTronco(sB);
+          const dB = Math.hypot(x - ptB[0], y - ptB[1], z - ptB[2]), fm = 1 - suave(0.015, raioB, dB);
+          if (p) cadeia(p, fm, 1, x, y, z, true); else { prox(x, y, z, 1 - fm, true); seg1(sB, fm); }
+        }
+        else { prox(x, y, z, 1, false); converter(x, y, z); }
       }
       let tot = 0;
       for (let k = 0; k < 4; k++) { let m = -1; for (let t = 0; t < nc; t++) if (cp[t] > 0 && (m < 0 || cp[t] > cp[m])) m = t; if (m < 0) break; idx[4 * i + k] = cb[m]; wt[4 * i + k] = cp[m]; tot += cp[m]; cp[m] = -1; }
       for (let k = 0; k < 4; k++) wt[4 * i + k] /= tot || 1;
     }
-    yield { id, idx, wt, prog: (mi + 1) / malhas.length };
+    yield { id, idx, wt, prog: (mi + 1) / malhas.length, diag: modo + ' ' + (['campo', ...segs][sA] || sA) + '>' + (['campo', ...segs][sB] || sB) };
   }
 }
 
@@ -106,7 +142,7 @@ const POSE = (() => {
   const NIV = [...[5, 4, 3, 2, 1].map(i => 'Vertebra L' + i), ...[12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map(i => 'Vertebra T' + i), ...[7, 6, 5, 4, 3].map(i => 'Vertebra C' + i), 'Axis (C2)', 'Atlas (C1)'];
   const REG = { lum: [0, 5], torI: [5, 6], torS: [11, 6], cerI: [17, 5], cerS: [22, 3] };   // [primeiro nível, nº de articulações]
   const LADOS = [['d', '.r', 1], ['e', '.l', -1]];   // sg = +1 no lado direito (x negativo no modelo)
-  const S = { pronto: false, ativo: false, k: 0, def: {}, gen: null, fer: new Set(), rig: [], campo: [], anim: null, mk: {}, A: {}, K: {}, H: {}, G: {}, Cs: {}, sc: {}, ac: {}, Hh: {}, Co: {}, MTP: {},
+  const S = { Rh: {}, Uh: {}, Wr: {}, pronto: false, ativo: false, k: 0, def: {}, gen: null, fer: new Set(), rig: [], campo: [], anim: null, mk: {}, A: {}, K: {}, H: {}, G: {}, Cs: {}, sc: {}, ac: {}, Hh: {}, Co: {}, MTP: {},
     pesos: new Map(), clones: new Map(), usar: new Set(), ang: {}, aoMudar: null, rotExtra: null };
 
   /* --- geometria em coordenadas do mundo (vetores tipados) --- */
@@ -133,7 +169,8 @@ const POSE = (() => {
     if (SEG_RE.pe.test(b)) return (/phalanx/.test(b) ? 'dedos' : 'pe') + l;
     if (b === 'Scapula') return 'esc' + l; if (b === 'Clavicle') return 'cla' + l;
     if (b === 'Humerus') return 'umero' + l;
-    if (SEG_RE.braco.test(b)) return 'antebraco' + l;
+    if (b === 'Radius') return 'radio' + l; if (b === 'Ulna') return 'ulna' + l;
+    if (SEG_RE.braco.test(b)) return 'mao' + l;
     if (/^Vertebra |^Atlas|^Axis/.test(b)) return 'v:' + b;
     if (/rib|sternum|Xiphoid|Hyoid|Thyroid|Cricoid|Arytenoid|Corniculate/.test(b)) return null;   // tronco flexível: segue a coluna pela altura
     return 'cabeca';
@@ -150,6 +187,9 @@ const POSE = (() => {
       const K = mediaSe(fem, (x, y) => y < fy0 + 0.03); K.y = fy0 + 0.022; S.K[l] = K;
       const H = cabeca(fem); S.H[l] = H; S.Hh[l] = cabeca(hum);
       const Co = mediaSe(hum, (x, y) => y < hy0 + 0.022); Co.y = hy0 + 0.011; S.Co[l] = Co;
+      const rad = W('Radius' + suf), uln = W('Ulna' + suf), [ry0, ry1] = faixa(rad, 1), uy0 = faixa(uln, 1)[0];
+      S.Rh[l] = mediaSe(rad, (x, y) => y > ry1 - 0.012); S.Uh[l] = mediaSe(uln, (x, y) => y < uy0 + 0.014);   // cabeça do rádio e cabeça da ulna: eixo da pronação
+      const Wr = mediaSe(rad, (x, y) => y < ry0 + 0.016); Wr.x = (Wr.x + S.Uh[l].x) / 2; Wr.y = ry0 - 0.004; S.Wr[l] = Wr;   // centro do punho
       mk('mal_' + l, mediaSe(fib, (x, y) => y < fb0 + 0.015), 'perna' + l); mk('joe_' + l, K.clone(), 'coxa' + l);
       mk('troc_' + l, ponta(fem, 0, lat, 0.006, (x, y) => y > fy1 - 0.12), 'coxa' + l);
       mk('acr_' + l, ponta(esc, 0, lat, 0.008, (x, y) => y > ey1 - 0.04), 'esc' + l);
@@ -159,7 +199,7 @@ const POSE = (() => {
       mk('asis_' + l, ponta(qd, 2, 1, 0.005, (x, y) => y > H.y + 0.05), 'pelve'); mk('cri_' + l, ponta(qd, 1, 1, 0.006), 'pelve');
       mk('pat_' + l, meio(W('Patella' + suf)), 'coxa' + l);
       mk('tt_' + l, ponta(tib, 2, 1, 0.004, (x, y) => y < ty1 - 0.03 && y > ty1 - 0.075), 'perna' + l);
-      mk('cot_' + l, Co.clone(), 'umero' + l); mk('omb_' + l, S.Hh[l].clone(), 'umero' + l); mk('qua_' + l, H.clone(), 'coxa' + l);
+      mk('cot_' + l, Co.clone(), 'umero' + l); mk('pun_' + l, S.Wr[l].clone(), 'radio' + l); mk('mao_' + l, S.Wr[l].clone().add(new V3(0, -0.09, 0)), 'mao' + l); mk('omb_' + l, S.Hh[l].clone(), 'umero' + l); mk('qua_' + l, H.clone(), 'coxa' + l);
     }
     S.Sm = S.Hh.d.clone().add(S.Hh.e).multiplyScalar(0.5);
     const esp = n => ponta(W(n), 2, -1, 0.004);
@@ -182,8 +222,17 @@ const POSE = (() => {
       S.MTP[l] = new V3(S.A[l].x, S.chao + 0.012, (z0 < 1e8 ? z0 : S.A[l].z + 0.14) + 0.006);
     }
     S.SEGN = [...nomes]; const idx = Object.fromEntries(S.SEGN.map((s, i) => [s, i]));
-    // esqueleto de "ossos virtuais" para a GPU: um por segmento rígido e um por nível da coluna (tronco flexível)
-    S.bones = [...S.SEGN, ...S.FY.map((_, j) => 'campo' + j)].map(() => { const b = new THREE.Bone(); b.matrixAutoUpdate = false; b.matrixWorldAutoUpdate = false; return b; });
+    // articulações com ossos intermediários: [segmento de cima, segmento de baixo, pivô]
+    S.pares = []; let h = 0;
+    for (const [l] of LADOS) for (const [a, b, P] of [['esc', 'umero', S.Hh], ['cla', 'umero', S.Hh], ['tor', 'umero', S.Hh], ['umero', 'ulna', S.Co], ['umero', 'radio', S.Co], ['ulna', 'radio', S.Rh], ['radio', 'mao', S.Wr], ['ulna', 'mao', S.Wr],
+      ['pelve', 'coxa', S.H], ['coxa', 'perna', S.K], ['perna', 'pe', S.A], ['pe', 'dedos', S.MTP]]) {
+      const an = a === 'pelve' ? a : a + l; if (!(b + l in idx) || (a !== 'tor' && !(an in idx))) continue;
+      const cb = new V3(); let nb = 0; for (const r of S.rig) if (r.seg === b + l) { const w = W(r.m.name); cb.add(meio(w)); nb++; }
+      const D = nb ? cb.multiplyScalar(1 / nb).sub(P[l]).normalize() : new V3(0, -1, 0);
+      S.pares.push({ a: an, b: b + l, P: P[l], D, h: [h, h + 1, h + 2] }); h += 3;
+    }
+    // esqueleto de "ossos virtuais" para a GPU: um por segmento rígido, um por nível da coluna (tronco flexível) e os intermediários
+    S.bones = [...S.SEGN, ...S.FY.map((_, j) => 'campo' + j), ...Array(h).fill(0)].map(() => { const b = new THREE.Bone(); b.matrixAutoUpdate = false; b.matrixWorldAutoUpdate = false; return b; });
     S.esq = new THREE.Skeleton(S.bones, S.bones.map(() => new M4()));
     S.grupoPele = new THREE.Group(); scene.add(S.grupoPele);
     const cel = 0.03, px = [], py = [], pz = [], ps = [];
@@ -200,9 +249,9 @@ const POSE = (() => {
     if (S.pele) return S.pele;
     preparar();
     const nomes = [...S.campo, ...Object.keys(MESH).filter(n => MESH[n].userData.camada === 'musculos')], campo = new Set(S.campo);
-    const dados = () => ({ ...S.grade, segs: S.SEGN, nseg: S.SEGN.length, FY: S.FY, malhas: nomes.map(n => ({ id: n, w: mundo(MESH[n]), campo: campo.has(n) })) });
+    const dados = () => ({ ...S.grade, segs: S.SEGN, pares: S.pares.map(p => ({ a: p.a, b: p.b, h: p.h, P: p.P.toArray(), D: p.D.toArray() })), nseg: S.SEGN.length, FY: S.FY, malhas: nomes.map(n => ({ id: n, w: mundo(MESH[n]), campo: campo.has(n) })) });
     S.pele = new Promise(ok => {
-      const receber = r => { S.pesos.set(r.id, r); S.prog = r.prog; if (S.onProg) S.onProg(r.prog); };
+      const receber = r => { S.pesos.set(r.id, r); (S.diag = S.diag || {})[r.id] = r.diag; S.prog = r.prog; if (S.onProg) S.onProg(r.prog); };
       const fim = () => { S.peleOk = true; S.onProg = null; ok(); };
       const naPagina = () => { S.pesos.clear(); const it = pesosGen(dados()); const passo = () => { const t0 = performance.now(); let r = it.next(); while (!r.done) { receber(r.value); if (performance.now() - t0 > 14) return setTimeout(passo, 0); r = it.next(); } fim(); }; passo(); };
       let wk = null;
@@ -233,6 +282,7 @@ const POSE = (() => {
     const g = (grp, key, l) => { const o = d[grp]; if (!o || (o.lado && l && o.lado !== l)) return 0; let v = o[key]; if (v && typeof v === 'object') v = v[l]; return (v || 0) * k; };
     for (const [l, , sg] of LADOS) {
       const Aa = S.A[l], K = S.K[l], H = S.H[l]; let Ms, Mc, Mp;
+      if (mv.perna && (mv.perna.lado || 'd') === l) { Hn[l] = H.clone(); continue; }   // perna livre: calculada depois da pelve
       if (mv.agach) {   // agachamento: canela avança até o limite do tornozelo, o resto vem da coxa
         const s = Math.min(mv.mob ?? 35, 0.4 * mv.agach), t = mv.agach - s; A.s = s; A.t = t;
         Ms = em(Aa, rX(s)); const K2 = K.clone().applyMatrix4(Ms); Mc = tra(K2).multiply(rX(-t)).multiply(neg(K)); Mp = new M4();
@@ -252,7 +302,7 @@ const POSE = (() => {
     const Hm = S.H.d.clone().add(S.H.e).multiplyScalar(0.5), Hm2 = Hn.d.clone().add(Hn.e).multiplyScalar(0.5);
     const obl = (Math.atan2(Hn.e.y - Hn.d.y, Hn.e.x - Hn.d.x) - Math.atan2(S.H.e.y - S.H.d.y, S.H.e.x - S.H.d.x)) / RAD;
     let u = 0;
-    if (mv.agach) {   // tronco inclina até o centro de massa (corpo) ficar sobre o meio do pé
+    if (mv.agach && !mv.perna) {   // tronco inclina até o centro de massa (corpo) ficar sobre o meio do pé
       const HAT0 = Hm.clone().lerp(S.Sm, 0.626), pes = [], alvo = (S.A.d.z + S.A.e.z) / 2 + 0.045, braco = 0.1 * 0.3 * Math.sin((mv.flex || 0) * RAD);
       for (const [l] of LADOS) pes.push([0.1, S.H[l].clone().lerp(S.K[l], 0.433).applyMatrix4(M['coxa' + l]).z], [0.0465, S.K[l].clone().lerp(S.A[l], 0.433).applyMatrix4(M['perna' + l]).z]);
       const zcm = uu => { const h = HAT0.clone().applyMatrix4(tra(Hm2).multiply(rX(uu)).multiply(neg(Hm))); let s = 0.678 * h.z + braco, m = 0.678; for (const [a, z] of pes) { s += a * z; m += a; } return s / m; };
@@ -260,6 +310,13 @@ const POSE = (() => {
     }
     A.u = u;
     M.pelve = tra(Hm2, Hm).multiply(em(Hm, rY(g('pelve', 'rot')).multiply(rZ(obl + g('pelve', 'obl'))).multiply(rX(g('pelve', 'ant') + u))));
+    if (mv.perna) {   // cadeia aberta: quadril → joelho → tornozelo, com a pelve parada
+      const P = mv.perna, l = P.lado || 'd', sg = l === 'd' ? 1 : -1;
+      const Mc = M.pelve.clone().multiply(em(S.H[l], rY(sg * (P.qa || 0)).multiply(rZ(-sg * (P.qb || 0))).multiply(rY(sg * (P.qr || 0)))));
+      const Ms = Mc.clone().multiply(em(S.K[l], rX(P.joe || 0).multiply(rY(sg * (P.joeRot || 0)))));
+      const Mp = Ms.clone().multiply(em(S.A[l], rX(-(P.df || 0)).multiply(rZ(sg * (P.inv || 0))).multiply(rY(sg * (P.add || 0)))));
+      M['coxa' + l] = Mc; M['perna' + l] = Ms; M['pe' + l] = Mp; M['dedos' + l] = Mp.clone();
+    }
     const col = d.col || {}, lv = []; let ant = M.pelve;
     for (let i = 0; i <= 24; i++) {
       let reg = 'cerS'; for (const [r, [a, n]] of Object.entries(REG)) if (i >= a && i < a + n) reg = r;
@@ -270,15 +327,20 @@ const POSE = (() => {
     }
     S.FM = [M.pelve, ...lv].map(m => m.elements);
     for (const [l, , sg] of LADOS) {
-      const lado = !mv.lado || mv.lado === l, fl = lado ? mv.flex || 0 : 0, ab = lado ? mv.abd || 0 : 0, ct = lado ? mv.cot || 0 : 0;
+      const lado = !mv.lado || mv.lado === l, v = k => lado ? mv[k] || 0 : 0;
+      // ombro: plano de elevação (0 = frontal/abdução, 90 = sagital/flexão), elevação no plano e rotação axial (medial +)
+      const om = lado && mv.omb ? mv.omb : mv.flex && lado ? { a: 90, b: mv.flex } : mv.abd && lado ? { a: 0, b: mv.abd, rl: 1 } : { a: 0, b: 0 };
       // ritmo escapuloumeral: até ~30° quase só a glenoumeral; depois a escápula gira para cima 1° a cada 2° do úmero
-      const elev = Math.max(fl, ab), phi = Math.max(0, elev - 30) * 0.4, rl = Math.max(0, ab - 70) * 0.55; A['phi' + l] = phi; A['rl' + l] = rl;
-      const Me = lv[13].clone().multiply(new M4().makeTranslation(0, g('esc', 'elev', l) / 100, 0)).multiply(em(S.Ct, rY(sg * g('esc', 'prot', l)))).multiply(em(S.G[l], rY(sg * g('esc', 'wing', l))))
+      const phi = Math.max(0, (om.b || 0) - 30) * 0.4 + v('escRot'), rl = om.rl ? Math.max(0, om.b - 70) * 0.55 : 0; A['phi' + l] = phi; A['rl' + l] = rl;
+      const Me = lv[13].clone().multiply(new M4().makeTranslation(0, (g('esc', 'elev', l) + v('escElev')) / 100, 0)).multiply(em(S.Ct, rY(sg * (g('esc', 'prot', l) + v('escProt'))))).multiply(em(S.G[l], rY(sg * g('esc', 'wing', l))))
         .multiply(em(S.ac[l], rZ(-sg * phi).multiply(rX(-phi * 0.3)))).multiply(em(S.Cs[l], rZ(sg * g('esc', 'rotInf', l)).multiply(rX(g('esc', 'tilt', l)))));   // rotação para cima em torno da acromioclavicular
       M['esc' + l] = Me;
-      const Rel = fl ? rX(-fl) : ab ? rZ(-sg * ab).multiply(rY(-sg * rl)) : new M4();
+      const Rel = rY(sg * (om.a || 0)).multiply(rZ(-sg * (om.b || 0))).multiply(rY(sg * ((om.r || 0) - rl)));
       const Mu = tra(S.Hh[l].clone().applyMatrix4(Me)).multiply(rY(sg * g('braco', 'rot', l))).multiply(Rel).multiply(neg(S.Hh[l]));
-      M['umero' + l] = Mu; M['antebraco' + l] = Mu.clone().multiply(em(S.Co[l], rX(-ct)));
+      const Mul = Mu.clone().multiply(em(S.Co[l], rX(-v('cot'))));
+      const eixoPr = S.Uh[l].clone().sub(S.Rh[l]).normalize();   // pronação: o rádio gira em volta da ulna (da cabeça do rádio à cabeça da ulna)
+      const Mr = Mul.clone().multiply(tra(S.Rh[l])).multiply(new M4().makeRotationAxis(eixoPr, -sg * v('pron') * RAD)).multiply(neg(S.Rh[l]));
+      M['umero' + l] = Mu; M['ulna' + l] = Mul; M['radio' + l] = Mr; M['mao' + l] = Mr.clone().multiply(em(S.Wr[l], rX(-v('punF')).multiply(rZ(-sg * v('punD')))));
       const sc = S.sc[l], sc2 = campoPt(sc), ac2 = S.ac[l].clone().applyMatrix4(Me);
       const q = new THREE.Quaternion().setFromUnitVectors(S.ac[l].clone().sub(sc).normalize(), ac2.sub(sc2).normalize());
       M['cla' + l] = tra(sc2).multiply(new M4().makeRotationFromQuaternion(q)).multiply(neg(sc));
@@ -291,6 +353,13 @@ const POSE = (() => {
     S.M = M;
     S.SEGN.forEach((s, i) => S.bones[i].matrixWorld.copy(M[s] || I));
     S.FM.forEach((e, j) => S.bones[S.SEGN.length + j].matrixWorld.fromArray(e));
+    // intermediários: o segmento de cima girado 1/4, 1/2 e 3/4 do caminho até o de baixo, em torno do pivô da articulação
+    const base = S.SEGN.length + S.FM.length, q = new THREE.Quaternion(), qi = new THREE.Quaternion(), pos = new V3(), esc = new V3(), Ma = new M4(), Rl = new M4();
+    for (const p of S.pares) {
+      Ma.copy(p.a.startsWith('tor') ? M['v:Vertebra T4'] : M[p.a] || I); const Mb = M[p.b] || I;
+      Rl.copy(Ma).invert().multiply(Mb); Rl.decompose(pos, q, esc); const P2 = p.P.clone().applyMatrix4(Rl);
+      for (let j = 0; j < 3; j++) { const t = (j + 1) / 4; qi.identity().slerp(q, t); S.bones[base + p.h[j]].matrixWorld.copy(Ma).multiply(tra(p.P.clone().lerp(P2, t))).multiply(new M4().makeRotationFromQuaternion(qi)).multiply(neg(p.P)); }
+    }
   }
   function campoPt(p) {
     const FY = S.FY, U = FY.length - 1; let j = 0, f = 0; if (p.y >= FY[U]) { j = U - 1; f = 1; } else if (p.y > FY[0]) { while (p.y >= FY[j + 1]) j++; f = (p.y - FY[j]) / (FY[j + 1] - FY[j]); }
@@ -413,16 +482,16 @@ const POSE = (() => {
 })();
 
 function limparDesvio() {
-  POSE.sair();
+  POSE.sair(); PE.mostrar(false);
   for (const m of Object.values(MESH)) if (m.userData.cor0) { m.material.color.copy(m.userData.cor0); delete m.userData.cor0; }
   desvioAtivo = null;
 }
 const nomePt = b => { const n = Object.keys(E).find(k => E[k].b === b && E[k].c === 'musculos'); return n ? E[n].n : b; };
-function colorir(grupos, cores) {   // pinta os músculos de cada grupo; devolve os nomes das malhas
+function colorir(grupos, cores, lado) {   // pinta os músculos de cada grupo; devolve os nomes das malhas
   const nomes = new Set();
   for (const [g, lista] of Object.entries(grupos)) {
     const bases = new Set(lista);
-    for (const [n, e] of Object.entries(E)) if (e.c === 'musculos' && bases.has(e.b) && MESH[n]) { nomes.add(n); const m = MESH[n]; if (!m.userData.cor0) m.userData.cor0 = m.material.color.clone(); m.material.color.set(cores[g]); }
+    for (const [n, e] of Object.entries(E)) if (e.c === 'musculos' && bases.has(e.b) && MESH[n] && (!lado || e.l === lado)) { nomes.add(n); const m = MESH[n]; if (!m.userData.cor0) m.userData.cor0 = m.material.color.clone(); m.material.color.set(cores[g]); }
   }
   return nomes;
 }
@@ -433,14 +502,15 @@ async function peleProntaToast() {
   msg(POSE.S.prog || 0); await POSE.pele(msg); $('toast').classList.remove('on');
 }
 // enquadra a faixa do corpo na área livre da tela (acima do painel no celular, à esquerda dele no computador)
-function enquadrarP(quadro, vista) {
-  const [y, alt] = QUADRO[quadro] || QUADRO.corpo, W = innerWidth, H = innerHeight, cel = W < 900;
+function enquadrarP(quadro, vista, centro) {
+  let [y, alt, x0 = 0] = QUADRO[quadro] || QUADRO.corpo, z0 = 0; if (centro) { x0 = centro.x; y = centro.y; z0 = centro.z; }
+  const W = innerWidth, H = innerHeight, cel = W < 900;
   const area = cel ? { x0: 0, x1: W, y0: 140, y1: H * 0.5 - 66 } : { x0: 0, x1: W - 430, y0: 64, y1: H - 64 };
   const t = Math.tan(cam.fov * Math.PI / 360), aw = (area.x1 - area.x0) / W, ah = (area.y1 - area.y0) / H, larg = Math.max(0.62, alt * 0.48);
   const dist = 1.06 * Math.max(alt / 2 / (t * ah), larg / 2 / (t * cam.aspect * aw)) + 0.15;
   const dir = new THREE.Vector3(...VISTAS[vista] || VISTAS.lat).normalize(), fwd = dir.clone().negate(), dr = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize(), up = new THREE.Vector3().crossVectors(dr, fwd);
   const wpp = 2 * dist * t / H, dx = (area.x0 + area.x1) / 2 - W / 2, dy = (area.y0 + area.y1) / 2 - H / 2;
-  voar(new THREE.Vector3(0, y, 0).addScaledVector(dr, -dx * wpp).addScaledVector(up, dy * wpp).toArray(), dist, dir, false);
+  voar(new THREE.Vector3(x0, y, z0).addScaledVector(dr, -dx * wpp).addScaledVector(up, dy * wpp).toArray(), dist, dir, false);
 }
 function painelP(titulo, sub, html) { $('pT').textContent = titulo; $('pS').innerHTML = sub; $('pB').innerHTML = html; $('painel').classList.add('on'); painelAberto = true; resize(); $('pB').scrollTop = 0; }
 const chipsFer = (todos = true) => `<div class="seg" id="pFer">${Object.entries(FER_N).map(([k, n]) => `<button data-f="${k}" class="${POSE.S.fer.has(k) ? 'on' : ''}">${n}</button>`).join('')}${todos ? `<button data-todos="1" class="${POSE.S.todos ? 'on' : ''}">Todos os músculos</button>` : ''}</div><div id="pLeit">${POSE.leituraHTML()}</div>`;
@@ -459,7 +529,7 @@ function ligarPainelP() {
 function listaPostura() {
   limparDesvio(); isolado = null; filtroInsercao = null; aplicarVis(); destacar(null);
   document.querySelectorAll('#regioes .chip').forEach(b => b.classList.toggle('on', b.dataset.r === 'postura'));
-  voar([0, 0.9, 0], 3.7, new THREE.Vector3(-0.5, 0.1, 1));
+  enquadrarP('corpo', 'frente');
   const grupos = {}; POST.lista.forEach(d => (grupos[d.local] = grupos[d.local] || []).push(d));
   const ordem = Object.keys(grupos).sort((a, b) => LOCAIS.indexOf(a) - LOCAIS.indexOf(b));
   painelP('Postura', '<span class="tag">posturologia</span>do tornozelo à cervical', `
