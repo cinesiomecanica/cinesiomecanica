@@ -5,7 +5,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const DADOS = await fetch('dados.json').then(r => r.json());
+const DADOS = window.__DADOS;
 const E = DADOS.e, INFO = DADOS.info;
 
 /* ---------- cena ---------- */

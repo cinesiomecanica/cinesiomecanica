@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Assinantes · Cinesiomecânica</title>
+<meta name="theme-color" content="#090d18">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700..800&family=Instrument+Sans:wght@400..700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#090d18;--bg2:#10162a;--card:#141b31;--line:#263153;--ink:#f2f4fa;--ink2:#aeb7cf;--ink3:#7480a0;--au:#ffb938;--au2:#ffd27a;--ci:#2fd3c6;--er:#ff6b6b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;font-size:15px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+a{color:var(--au);text-decoration:none}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:14px 18px;background:#090d18e6;border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+.marca{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.03em}.marca i{font-style:normal;color:var(--au)}
+.top .sp{flex:1}.top small{color:var(--ink3)}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 16px 80px}
+h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:28px;letter-spacing:-.03em}
+.resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}
+.resumo div{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.resumo b{display:block;font-family:'Bricolage Grotesque',sans-serif;font-size:30px;color:var(--au)}
+.resumo span{color:var(--ink2);font-size:13px;font-weight:600}
+.caixa{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;margin-bottom:18px}
+.caixa h2{font-size:17px;margin-bottom:12px}
+.grade{display:grid;gap:10px;grid-template-columns:1fr}
+@media(min-width:760px){.grade{grid-template-columns:2fr 1fr 1fr}}
+label{display:block;font-size:12.5px;font-weight:700;color:var(--ink2);margin-bottom:5px}
+input,select,textarea{width:100%;background:var(--bg2);border:1.5px solid var(--line);border-radius:12px;padding:11px 12px;font-size:15px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--au)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.btn{padding:11px 18px;border-radius:999px;font-weight:700;background:linear-gradient(180deg,var(--au2),var(--au));color:#1a1203}
+.btn.sec{background:var(--bg2);border:1.5px solid var(--line);color:var(--ink)}
+.btn.pe{padding:7px 12px;font-size:13px}
+.btn.ver{background:#ff6b6b22;color:#ffb3b3;border:1px solid #ff6b6b55}
+.busca{display:flex;gap:8px;margin-bottom:10px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:11px 8px;border-top:1px solid var(--line);vertical-align:middle}
+th{font-size:12px;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;border-top:0}
+td.em{word-break:break-all;font-weight:600}
+.tag{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700}
+.tag.ok{background:#2fd3c61f;color:var(--ci)}.tag.no{background:#ff6b6b1f;color:#ffb3b3}
+.msg{margin-top:10px;font-size:14px;min-height:20px}.msg.er{color:#ffb3b3}.msg.ok{color:var(--ci)}
+.vazio{color:var(--ink3);padding:18px 8px}
+@media(max-width:700px){.col-or,.col-pl{display:none}}
+.bloq{display:grid;place-items:center;min-height:70vh;text-align:center;color:var(--ink2);line-height:1.6}
+</style>
+</head>
+<body>
+<header class="top"><span class="marca">cinesio<i>mecânica</i></span><small>· assinantes</small><span class="sp"></span><a class="btn sec pe" href="/app/">Abrir atlas</a><button class="btn sec pe" id="bSair" type="button">Sair</button></header>
+<main class="wrap" id="main"><div class="bloq">Carregando…</div></main>
+
+<template id="tpl">
+ <h1>Assinantes</h1>
+ <div class="resumo"><div><b id="nAtivos">0</b><span>com acesso</span></div><div><b id="nVenc">0</b><span>vencidos ou bloqueados</span></div><div><b id="nTotal">0</b><span>no total</span></div></div>
+
+ <section class="caixa">
+  <h2 id="tForm">Liberar acesso</h2>
+  <form id="f" class="grade" novalidate>
+   <div><label for="fEmail">E-mail da pessoa</label><input id="fEmail" type="email" placeholder="nome@exemplo.com" required></div>
+   <div><label for="fPlano">Plano</label><select id="fPlano">
+    <option value="mensal">Mensal (+1 mês)</option><option value="semestral">Semestral (+6 meses)</option><option value="anual">Anual (+12 meses)</option><option value="cortesia">Cortesia</option></select></div>
+   <div><label for="fAte">Acesso até</label><input id="fAte" type="date" required></div>
+   <div style="grid-column:1/-1"><label for="fObs">Observação (opcional)</label><input id="fObs" type="text" placeholder="Ex.: pagou por Pix, aluno da turma X…"></div>
+  </form>
+  <div class="acoes"><button class="btn" id="bSalvar" type="button">Salvar acesso</button><button class="btn sec" id="bLimpar" type="button">Limpar</button></div>
+  <div class="msg" id="msg"></div>
+ </section>
+
+ <section class="caixa">
+  <div class="busca"><input id="q" type="search" placeholder="Buscar por e-mail…"><select id="filtro" style="max-width:170px"><option value="todos">Todos</option><option value="ativos">Com acesso</option><option value="venc">Vencidos</option></select></div>
+  <table><thead><tr><th>E-mail</th><th class="col-pl">Plano</th><th>Até</th><th class="col-or">Origem</th><th></th></tr></thead><tbody id="lista"></tbody></table>
+ </section>
+</template>
+
+<script type="module">
+import { sb, usuario, ehAdmin, sair } from '/conta/conta.js';
+const $ = id => document.getElementById(id);
+$('bSair').onclick = () => sair('/entrar/');
+const MESES = { mensal: 1, semestral: 6, anual: 12 };
+let todos = [];
+const hojeISO = () => new Date().toISOString().slice(0, 10);
+const somaMeses = (base, m) => { const d = new Date(base); d.setMonth(d.getMonth() + m); return d.toISOString().slice(0, 10); };
+const fmt = iso => new Date(iso).toLocaleDateString('pt-BR');
+const ativo = r => new Date(r.valido_ate) > new Date();
+
+async function iniciar() {
+  const u = await usuario();
+  if (!u) return location.replace('/entrar/?volta=/admin/');
+  if (!(await ehAdmin())) { $('main').innerHTML = '<div class="bloq">Esta área é só para a administração.<br><a href="/app/">Voltar ao atlas</a></div>'; return; }
+  $('main').innerHTML = ''; $('main').appendChild($('tpl').content.cloneNode(true));
+  $('fAte').value = somaMeses(new Date(), 1);
+  $('fPlano').onchange = () => { const m = MESES[$('fPlano').value]; if (m) $('fAte').value = somaMeses(baseData(), m); };
+  $('fEmail').oninput = () => { const m = MESES[$('fPlano').value]; if (m) $('fAte').value = somaMeses(baseData(), m); };
+  $('bSalvar').onclick = salvar; $('bLimpar').onclick = limpar;
+  $('q').oninput = desenha; $('filtro').onchange = desenha;
+  await carregar();
+}
+// renovação soma a partir do vencimento atual, se ainda estiver ativo
+function baseData() {
+  const r = todos.find(x => x.email === $('fEmail').value.trim().toLowerCase());
+  return r && ativo(r) ? new Date(r.valido_ate) : new Date();
+}
+async function carregar() {
+  const { data, error } = await sb.from('assinantes').select('*').order('valido_ate', { ascending: false });
+  if (error) return msg(error.message, 'er');
+  todos = data || []; desenha();
+}
+function desenha() {
+  const q = $('q').value.trim().toLowerCase(), f = $('filtro').value;
+  const L = todos.filter(r => (!q || r.email.includes(q)) && (f === 'todos' || (f === 'ativos') === ativo(r)));
+  $('nAtivos').textContent = todos.filter(ativo).length; $('nVenc').textContent = todos.filter(r => !ativo(r)).length; $('nTotal').textContent = todos.length;
+  const tb = $('lista'); tb.innerHTML = '';
+  if (!L.length) { tb.innerHTML = '<tr><td colspan="5" class="vazio">Nenhum assinante encontrado.</td></tr>'; return; }
+  for (const r of L) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="em"></td><td class="col-pl"></td><td></td><td class="col-or"></td><td style="text-align:right;white-space:nowrap"></td>`;
+    tr.children[0].textContent = r.email;
+    tr.children[1].textContent = r.plano;
+    tr.children[2].innerHTML = `<span class="tag ${ativo(r) ? 'ok' : 'no'}">${ativo(r) ? 'até ' : 'venceu '}${fmt(r.valido_ate)}</span>`;
+    tr.children[3].textContent = r.origem || '';
+    const ed = Object.assign(document.createElement('button'), { className: 'btn sec pe', textContent: 'Editar', type: 'button' });
+    ed.onclick = () => { $('fEmail').value = r.email; $('fPlano').value = MESES[r.plano] || r.plano === 'cortesia' ? r.plano : 'cortesia'; $('fAte').value = r.valido_ate.slice(0, 10); $('fObs').value = r.obs || ''; $('tForm').textContent = 'Editar acesso'; scrollTo({ top: 0, behavior: 'smooth' }); };
+    const bl = Object.assign(document.createElement('button'), { className: 'btn ver pe', textContent: ativo(r) ? 'Bloquear' : 'Remover', type: 'button', style: 'margin-left:6px' });
+    bl.onclick = () => confirma(bl, async () => {
+      const q = ativo(r) ? sb.from('assinantes').update({ valido_ate: new Date().toISOString(), atualizado_em: new Date().toISOString() }).eq('email', r.email)
+                         : sb.from('assinantes').delete().eq('email', r.email);
+      const { error } = await q; if (error) return msg(error.message, 'er'); msg(ativo(r) ? 'Acesso bloqueado.' : 'Removido da lista.', 'ok'); carregar();
+    });
+    tr.children[4].append(ed, bl); tb.appendChild(tr);
+  }
+}
+// confirmação no próprio botão (sem janelas do navegador)
+function confirma(b, fn) {
+  if (b.dataset.c) { delete b.dataset.c; return fn(); }
+  const t = b.textContent; b.dataset.c = 1; b.textContent = 'Confirmar?';
+  setTimeout(() => { if (b.dataset.c) { delete b.dataset.c; b.textContent = t; } }, 3000);
+}
+async function salvar() {
+  const email = $('fEmail').value.trim().toLowerCase(), ate = $('fAte').value;
+  if (!/^\S+@\S+\.\S+$/.test(email)) return msg('Digite um e-mail válido.', 'er');
+  if (!ate) return msg('Escolha a data de validade.', 'er');
+  const fim = new Date(ate + 'T23:59:59-03:00').toISOString();
+  const { error } = await sb.from('assinantes').upsert({ email, plano: $('fPlano').value, valido_ate: fim, origem: 'manual', obs: $('fObs').value.trim() || null, atualizado_em: new Date().toISOString() }, { onConflict: 'email' });
+  if (error) return msg(error.message, 'er');
+  msg('Acesso salvo para ' + email + ' até ' + fmt(fim) + '. A pessoa já pode criar a conta ou entrar com esse e-mail.', 'ok'); limpar(false); carregar();
+}
+function limpar(apaga = true) { $('fEmail').value = ''; $('fObs').value = ''; $('fPlano').value = 'mensal'; $('fAte').value = somaMeses(new Date(), 1); $('tForm').textContent = 'Liberar acesso'; if (apaga) msg(''); }
+function msg(t, tipo = '') { const m = $('msg'); if (m) { m.className = 'msg ' + tipo; m.textContent = t; } }
+iniciar();
+</script>
+</body>
+</html>

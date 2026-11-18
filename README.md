@@ -15,11 +15,20 @@ Atlas 3D interativo de anatomia, cinesiologia, biomecânica e postura.
 - **Deformação dos músculos:** músculos em leque (grande dorsal, peitoral, trapézio, glúteos) esticam ao longo das fibras; deltoide e manguito giram em volta da cabeça do úmero; a escápula contorna o gradil costal.
 - **Postura:** 17 desvios com o corpo posicionado, fios de prumo e ângulo Q medidos ao vivo, cadeias e manejo.
 
-Site estático (GitHub Pages). A pasta `fonte/` guarda os textos de cada região e os scripts que geram `dados.json`.
+## Estrutura
+
+- `/` — página de vendas e planos (`index.html`, mídias em `midia/`).
+- `/app/` — o atlas. Só abre para quem tem assinatura válida.
+- `/entrar/` — login, criação de conta e troca de senha.
+- `/admin/` — painel para liberar, renovar e bloquear assinantes.
+- `conta/` — conexão com o Supabase (login e verificação de acesso).
+- `supabase/` — esquema do banco (assinantes, administradores e cofre de conteúdo) e a função que recebe os avisos de pagamento.
+
+As fichas e textos (`dados.json`) ficam num cofre privado do Supabase e só são entregues a assinantes. Os textos-fonte e os scripts que geram o `dados.json` não ficam neste repositório público.
 
 ## Créditos
 
 Modelos 3D: [Z-Anatomy](https://www.z-anatomy.com/) (CC BY-SA 4.0), derivados do BodyParts3D (DBCLS, CC BY-SA 2.1 JP).
-Os arquivos da pasta `modelo/` são obras derivadas e seguem a licença CC BY-SA 4.0 (detalhes em `modelo/LICENSE.txt`). Os ossículos da orelha média foram retirados, porque podem vir de um modelo com licença não comercial.
+Os arquivos da pasta `app/modelo/` são obras derivadas e seguem a licença CC BY-SA 4.0 (detalhes em `app/modelo/LICENSE.txt`). Os ossículos da orelha média foram retirados, porque podem vir de um modelo com licença não comercial.
 O código, os textos, as fichas e o design do site são obra própria, com todos os direitos reservados.
-Biblioteca 3D: three.js (licença MIT, ver `lib/THREE-LICENSE`).
+Biblioteca 3D: three.js (licença MIT, ver `app/lib/THREE-LICENSE`).
