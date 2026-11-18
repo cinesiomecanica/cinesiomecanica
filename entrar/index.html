@@ -164,7 +164,14 @@ $('bRecheck').onclick = depoisDoLogin;
 for (const id of ['bSair1', 'bSair2']) $(id).onclick = async () => { await sb.auth.signOut(); trocaAba('entrar'); ver('vLogin'); };
 
 sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') ver('vNova'); });
-if (P.get('nova') === '1') ver('vNova'); else depoisDoLogin();
+if (P.get('nova') === '1') ver('vNova');
+else {
+  await depoisDoLogin();
+  if (P.get('pago') === '1' && !(await usuario())) {
+    trocaAba('criar');
+    aviso($('msg'), 'Assinatura recebida! Agora crie sua conta com o mesmo e-mail que você usou no Mercado Pago. Se já tem conta, use a aba Entrar.', 'ok');
+  }
+}
 </script>
 </body>
 </html>
