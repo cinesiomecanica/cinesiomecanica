@@ -7,6 +7,19 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const DADOS = window.__DADOS;
 const E = DADOS.e, INFO = DADOS.info;
+// Z-Anatomy: as malhas das partes ascendente (inferior) e descendente (superior) do trapézio vêm com os nomes trocados,
+// e as áreas de origem/inserção também. TROCA: nome no modelo -> nome certo (só se os dados ainda tiverem o erro).
+const TROCA = {};
+for (const l of ['r', 'l']) {
+  const A = 'Ascending part of trapezius muscle', D = 'Descending part of trapezius muscle';
+  if (!E[`${A}.e${l}`] || E[`${D}.e${l}`] || !E[`${D}.o${l}`]) continue;
+  TROCA[`${A}.${l}`] = `${D}.${l}`; TROCA[`${D}.${l}`] = `${A}.${l}`;
+  TROCA[`${A}.e${l}`] = `${D}.o${l}`;   // occipital → origem da parte descendente
+  TROCA[`${A}.o${l}`] = `${D}.e${l}`;   // clavícula → inserção da parte descendente
+  TROCA[`${D}.o${l}`] = `${A}.e${l}`;   // espinha da escápula → inserção da parte ascendente
+  E[`${D}.e${l}`] = { ...E[`${D}.o${l}`], t: 'inserção', n: E[`${D}.o${l}`].n.replace('Origem', 'Inserção') };
+  delete E[`${A}.o${l}`];               // origem da parte ascendente (T4–T12) não existe no modelo
+}
 
 /* ---------- cena ---------- */
 const canvas = $('c');
@@ -59,6 +72,7 @@ function material(nome, camada) {
   const c = new THREE.Color(COR[camada]);
   if (camada === 'musculos') c.offsetHSL(((hash(e.b || nome) % 100) / 100) * 0.02, 0, ((hash((e.b || nome) + 'x') % 100) / 100) * 0.06 - 0.03);
   const m = new THREE.MeshStandardMaterial({ color: c, roughness: camada === 'ossos' ? 0.62 : 0.5, metalness: 0 });
+  if (camada === 'musculos') m.side = THREE.DoubleSide;   // malhas abertas (adutores, períneo): sem isso o músculo parece "cortado"
   if (camada === 'articulacoes') { m.transparent = true; m.opacity = 0.85; }
   return m;
 }
@@ -75,7 +89,7 @@ function carregar(nome, pct0, pct1) {
     const grp = g.scene; grp.name = nome;
     const J = g.parser.json, A = g.parser.associations;
     const nomeOrig = o => { for (const x of [o, o.parent]) { const a = x && A.get(x); if (a && a.nodes !== undefined) return J.nodes[a.nodes].name.replace(/\.\d{3}$/, ''); } return o.name; };
-    grp.traverse(o => { if (o.isMesh) { const n = nomeOrig(o); if (!E[n]) { o.visible = false; return; } o.name = n; o.material = material(n, nome); o.userData.camada = nome; MESH[n] = o; } });
+    grp.traverse(o => { if (o.isMesh) { const n0 = nomeOrig(o), n = TROCA[n0] || n0; if (!E[n]) { o.visible = false; return; } o.name = n; o.material = material(n, nome); o.userData.camada = nome; MESH[n] = o; } });
     scene.add(grp); CAMADAS[nome] = grp; sujar(); ok(grp);
   }, ev => { if (ev.total && $('cBar')) $('cBar').style.width = (pct0 + (pct1 - pct0) * ev.loaded / ev.total) + '%'; }, err));
 }
