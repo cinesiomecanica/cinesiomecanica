@@ -1290,7 +1290,9 @@ vec3 fibRot(vec3 v, vec3 ax, float sn, float cs) { return v * cs + cross(ax, v) 
     }
     if (mv.L) {   // o pé mais baixo fica no chão (no modo livre o corpo "fica em pé" sobre ele; na marcha, como numa esteira)
       let dy = -1e9; for (const [l] of LADOS) for (const [p, key] of [[S.cal[l], 'pe' + l], [S.MTP[l], 'pe' + l], [S.dedo[l], 'dedos' + l]]) dy = Math.max(dy, p.y - p.clone().applyMatrix4(M[key]).y);
-      if (mv.altura != null) dy += mv.altura; const D = new M4().makeTranslation(0, dy, mv.avanco || 0); for (const key of Object.keys(M)) M[key].premultiply(D); A.dy = dy;
+      if (mv.altura != null) dy += mv.altura;
+      const dz = mv.fixarPe ? S.A.d.z - S.A.d.clone().applyMatrix4(M.pernad).z : 0;   // simulador: o tornozelo direito não sai do lugar (cadeia fechada)
+      const D = new M4().makeTranslation(0, dy, (mv.avanco || 0) + dz); for (const key of Object.keys(M)) M[key].premultiply(D); A.dy = dy;
     }
     if (mv.calc) {   // elevação dos calcanhares: o pé gira sobre a cabeça dos metatarsos e o corpo sobe junto
       const R = l => em(S.MTP[l], rX(mv.calc)), D = tra(S.A.d.clone().applyMatrix4(R('d')), S.A.d);
@@ -1431,11 +1433,13 @@ vec3 fibRot(vec3 v, vec3 ax, float sn, float cs) { return v * cs + cross(ax, v) 
     // laço contínuo (marcha): fase de 0 a 1 que avança sozinha; pausa e velocidade sem perder a fase
     laco(dur, fase) { S.anim = null; S.loop = { t: performance.now(), dur, fase: fase ?? (S.loop ? S.loop.fase : 0), pausa: false }; },
     pausarLaco(p) { if (S.loop) { S.loop.pausa = p; S.loop.t = performance.now(); } },
-    irFase(f) { if (S.loop) { S.loop.fase = ((f % 1) + 1) % 1; S.loop.t = performance.now(); aplicar(S.loop.fase, true); } } };
+    irFase(f) { if (S.loop) { S.loop.fase = ((f % 1) + 1) % 1; S.loop.t = performance.now(); aplicar(S.loop.fase, true); } },
+    // simulador: calcula várias poses só para medir (ossos e marcos), sem mexer no que está na tela; f recebe as matrizes de cada pose
+    medir(defs, f) { preparar(); const g = S.gen, out = defs.map(d => { S.gen = () => d; calc(); return f(S.M, S.ang); }); S.gen = g; if (S.ativo) calc(); return out; } };
 })();
 
 function limparDesvio() {
-  POSE.sair(); PE.mostrar(false);
+  POSE.sair(); PE.mostrar(false); if (typeof SIM !== 'undefined' && SIM.on) { SIM.on = false; SIM.cmp = null; if (SIM.g) SIM.g.visible = false; }
   for (const m of Object.values(MESH)) if (m.userData.cor0) { m.material.color.copy(m.userData.cor0); delete m.userData.cor0; }
   desvioAtivo = null;
 }
@@ -1783,11 +1787,13 @@ function listaMov(aba) {
       <h3>Mais</h3><div class="lista"><button data-aba="livre"><i style="background:${CORES_M.est}"></i><span class="lnome">Movimento livre: todas as articulações ao mesmo tempo</span></button><button data-aba="marcha"><i style="background:${CORES_M.sin}"></i><span class="lnome">Marcha: o ciclo fase a fase</span></button></div>`;
   }
   painelP('Corpo em movimento', '<span class="tag">cinesiologia</span>planos, eixos e músculos', `
+    <button class="simcard" data-aba="sim"><b>Simulador de exercícios <span>novo</span></b><small>Torque, braço de momento e esforço de cada músculo no agachamento e na remada curvada</small></button>
     <div class="abas"><button data-aba="art" class="${abaMov === 'art' ? 'on' : ''}">Articulações (${CAT.length})</button><button data-aba="ex" class="${abaMov === 'ex' ? 'on' : ''}">Exercícios (${MOVS.length})</button><button data-aba="livre">Livre</button><button data-aba="marcha">Marcha</button></div>
     ${corpo}
     <div class="aviso">Modelo de estudo: os ossos seguem ângulos médios da literatura e os músculos se deformam acompanhando os ossos, sem simular contração.</div>`);
   $('pB').onclick = ev => {
     const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.aba === 'sim') return mostrarSim();
     if (b.dataset.aba === 'livre') return mostrarLivre();
     if (b.dataset.aba === 'marcha') return mostrarMarcha();
     if (b.dataset.aba) return listaMov(b.dataset.aba);
@@ -2194,6 +2200,438 @@ function mostrarFaseM(fa) {
     <table class="ac">${fa.mus.map(([b, tp, fn]) => `<tr><td><i class="dotp" style="background:${TIPO_C[tp][0]}"></i><b>${esc(nomePt(b))}</b>${fn ? `<br><small>${esc(fn)}</small>` : ''}</td><td>${TIPO_C[tp][1]}</td></tr>`).join('')}</table></div>`;
 }
 
+/* ---------- simulador de exercícios: torque, braço de momento e esforço de cada músculo ---------- */
+// Modelo quase estático no plano sagital, medido no próprio corpo 3D. Massas e centros de massa dos segmentos pelas proporções de Winter.
+// Momento externo em cada articulação = soma de (peso × distância horizontal até a articulação) de tudo o que fica do lado que se move.
+// O esforço de cada músculo divide esse momento entre os músculos que podem vencê-lo (proporcional à área de secção e ao braço de momento).
+const RS = Math.PI / 180, sen = x => Math.sin(Math.max(0, x) * RS), lim = (x, a, b) => Math.max(a, Math.min(b, x));
+const MW = { pe: 0.0145, perna: 0.0465, coxa: 0.1, pelve: 0.142, tronco: 0.355, cabeca: 0.081, braco: 0.028, antebraco: 0.016, mao: 0.006 };
+// torque máximo voluntário de referência de cada grupo (N·m, adulto treinado de 75 kg; escala com a massa^0,67) e o ângulo em que ele é medido
+const TMAX = { 'qua.ext': [260, { qua: 60 }], 'qua.flex': [150, { qua: 30 }], 'joe.ext': [260, { joe: 60 }], 'joe.flex': [130, { joe: 45 }], 'tor.pf': [170, { tor: 0 }], 'tor.df': [45, { tor: 0 }],
+  'lom.ext': [330, { lom: 0 }], 'lom.flex': [220, { lom: 0 }], 'omb.ext': [90, { omb: 45 }], 'omb.flex': [70, { omb: 45 }], 'cot.flex': [70, { cot: 90 }], 'cot.ext': [50, { cot: 90 }] };
+// articulações: quem precisa trabalhar quando a carga passa à frente (pos) ou atrás (neg) da articulação
+const JS = {
+  tor: { n: 'Tornozelo', cor: '#94d82d', pos: ['pf', 'flexores plantares (sóleo e gastrocnêmio)'], neg: ['df', 'dorsiflexores (tibial anterior)'], lado: 'perna' },
+  joe: { n: 'Joelho', cor: '#ff9f43', pos: ['flex', 'flexores do joelho'], neg: ['ext', 'extensores do joelho (quadríceps)'], lado: 'perna' },
+  qua: { n: 'Quadril', cor: '#ff5d73', pos: ['ext', 'extensores do quadril (glúteo máximo, adutor magno e isquiotibiais)'], neg: ['flex', 'flexores do quadril'], lado: 'perna' },
+  lom: { n: 'Lombar', cor: '#c084fc', pos: ['ext', 'extensores da coluna (eretores e multífidos)'], neg: ['flex', 'abdômen (flexores do tronco)'] },
+  omb: { n: 'Ombro', cor: '#4dabf7', pos: ['flex', 'flexores do ombro (deltoide clavicular)'], neg: ['ext', 'extensores do ombro (latíssimo, redondo maior e deltoide espinal)'], lado: 'braço' },
+  cot: { n: 'Cotovelo', cor: '#2fd3c6', pos: ['flex', 'flexores do cotovelo (bíceps, braquial e braquiorradial)'], neg: ['ext', 'extensores do cotovelo (tríceps)'], lado: 'braço' },
+};
+const ANG_POS = { qua: 'flex', joe: 'flex', tor: 'df', lom: 'flex', omb: 'flex', cot: 'flex' };   // sentido em que cada ângulo cresce
+const rPat = a => 0.047 - 0.012 * lim((a.joe - 45) / 75, 0, 1);   // braço de momento do tendão patelar: maior entre 20° e 60°
+// unidades musculares: [articulação, função, braço de momento (m, fixo ou pelo ângulo)]; a = área de secção fisiológica (cm², por lado; na coluna, os dois lados)
+const US = {
+  glu: { n: 'Glúteo máximo', cor: '#ff5d73', b: ['Gluteus maximus muscle'], a: 34, ac: [['qua', 'ext', a => 0.075 - 0.025 * lim(a.qua / 100, 0, 1)]] },
+  adm: { n: 'Adutor magno', cor: '#c084fc', b: ['Adductor magnus'], a: 20, ac: [['qua', 'ext', a => 0.02 + 0.04 * lim(a.qua / 90, 0, 1)]] },
+  isq: { n: 'Isquiotibiais', cor: '#4dabf7', b: ['Long head of biceps femoris', 'Semitendinosus muscle', 'Semimembranosus muscle'], a: 34, ac: [['qua', 'ext', a => 0.065 - 0.015 * lim(a.qua / 100, 0, 1)], ['joe', 'flex', 0.03]] },
+  vas: { n: 'Vastos (quadríceps)', cor: '#ff9f43', b: ['Vastus lateralis muscle', 'Vastus medialis muscle', 'Vastus intermedius muscle'], a: 72, ac: [['joe', 'ext', rPat]] },
+  rf: { n: 'Reto femoral', cor: '#ffd43b', b: ['Rectus femoris muscle'], a: 13.5, ac: [['joe', 'ext', rPat], ['qua', 'flex', 0.04]] },
+  sol: { n: 'Sóleo', cor: '#94d82d', b: ['Soleus muscle'], a: 52, ac: [['tor', 'pf', 0.05]] },
+  gas: { n: 'Gastrocnêmio', cor: '#b2f2bb', b: ['Medial head of gastrocnemius', 'Lateral head of gastrocnemius'], a: 31, ac: [['tor', 'pf', 0.05], ['joe', 'flex', 0.02]] },
+  tib: { n: 'Tibial anterior', cor: '#63e6be', b: ['Tibialis anterior muscle'], a: 11, ac: [['tor', 'df', 0.04]] },
+  ere: { n: 'Eretores da espinha', cor: '#e599f7', b: ['Iliocostalis lumborum muscle', 'Longissimus thoracis muscle', 'Iliocostalis thoracis muscle', 'Spinalis thoracis muscle'], a: 60, ac: [['lom', 'ext', 0.06]] },
+  mul: { n: 'Multífidos', cor: '#b197fc', b: ['Multifidus lumborum muscle', 'Multifidus thoracis muscle'], a: 24, ac: [['lom', 'ext', 0.05]] },
+  lat: { n: 'Latíssimo do dorso', cor: '#4dabf7', b: ['Latissimus dorsi muscle'], a: 13, ac: [['omb', 'ext', a => 0.028 + 0.012 * sen(a.omb)]] },
+  trm: { n: 'Redondo maior', cor: '#74c0fc', b: ['Teres major muscle'], a: 9, ac: [['omb', 'ext', 0.028]] },
+  dep: { n: 'Deltoide (parte espinal)', cor: '#a5d8ff', b: ['Scapular spinal part of deltoid muscle'], a: 9, ac: [['omb', 'ext', a => 0.022 + 0.012 * (1 - lim(a.omb / 90, 0, 1))]] },
+  trl: { n: 'Tríceps (cabeça longa)', cor: '#99e9f2', b: ['Long head of triceps brachii'], a: 7, ac: [['omb', 'ext', 0.02], ['cot', 'ext', 0.02]] },
+  dea: { n: 'Deltoide (parte clavicular)', cor: '#ffc078', b: ['Clavicular part of deltoid muscle', 'Clavicular head of pectoralis major muscle'], a: 14, ac: [['omb', 'flex', 0.025]] },
+  bic: { n: 'Bíceps braquial', cor: '#ff8fa3', b: ['Long head of biceps brachii', 'Short head of biceps brachii'], a: 4.6, ac: [['cot', 'flex', (a, o) => (0.018 + 0.022 * sen(a.cot)) * (o.pegada === 'pronada' ? 0.8 : 1)]] },
+  bra: { n: 'Braquial', cor: '#ff9f43', b: ['Brachialis muscle'], a: 7, ac: [['cot', 'flex', a => 0.011 + 0.011 * sen(a.cot)]] },
+  brr: { n: 'Braquiorradial', cor: '#ffd43b', b: ['Brachioradialis muscle'], a: 1.5, ac: [['cot', 'flex', (a, o) => (0.03 + 0.03 * sen(a.cot)) * (o.pegada === 'supinada' ? 0.85 : 1)]] },
+};
+const rU = (r, a, o) => typeof r === 'function' ? r(a, o) : r;
+// joelho ou cotovelo estendidos com a carga tendendo a estender mais: quem segura são os ligamentos e o encaixe dos ossos
+const simTravado = (j, t, ang) => (j === 'joe' && t > 0 && ang.joe < 8) || (j === 'cot' && t < 0 && ang.cot < 8);
+function simSigMax(j, fun, op) {   // tensão máxima do grupo: torque máximo de referência dividido pela soma de (braço de momento × área) dos músculos do grupo (todos, não só os do exercício)
+  const [T, ref] = TMAX[j + '.' + fun] || [100, {}], a = { qua: 0, joe: 0, tor: 0, lom: 0, omb: 0, cot: 0, ...ref };
+  let s = 0; for (const u of Object.values(US)) for (const [jj, f, r] of u.ac) if (jj === j && f === fun) s += rU(r, a, op) * u.a;
+  return s ? T * Math.pow(op.massa / 75, 0.67) / s : 1;
+}
+function simEsforco(tau, ang, op, uns) {   // divisão do momento que minimiza a soma das tensões ao quadrado (Crowninshield e Brand)
+  const ef = {}; for (const id of uns) ef[id] = { p: 0, F: 0, j: null };
+  for (const [j, t] of Object.entries(tau)) {
+    const M = Math.abs(t); if (M < 0.05 || simTravado(j, t, ang)) continue;
+    const fun = (t >= 0 ? JS[j].pos : JS[j].neg)[0], ag = [], smax = simSigMax(j, fun, op);
+    for (const id of uns) for (const [jj, f, r] of US[id].ac) if (jj === j && f === fun) ag.push([id, rU(r, ang, op)]);
+    const den = ag.reduce((s, [id, r]) => s + r * r * US[id].a, 0); if (!den) continue;
+    for (const [id, r] of ag) { const sig = M * r / den, p = sig / smax * 100; if (p > ef[id].p) ef[id] = { p, F: sig * US[id].a, j }; }
+  }
+  return ef;
+}
+function simComp(ang, op, id) {   // variação do comprimento do músculo em relação à posição anatômica (cm): soma de braço de momento × ângulo
+  let d = 0;
+  for (const [j, f, r] of US[id].ac) {
+    const th = ang[j] || 0, n = 10; let s = 0;
+    for (let i = 0; i < n; i++) s += rU(r, { ...ang, [j]: th * (i + 0.5) / n }, op) * th / n * RS;
+    d += (f === ANG_POS[j] ? -1 : 1) * s;
+  }
+  return d * 100;
+}
+
+// ----- geometria no plano sagital (y para cima, z para a frente), a partir do modelo em pé -----
+const rot2 = (p, c, a) => { const dy = p.y - c.y, dz = p.z - c.z, co = Math.cos(a * RS), si = Math.sin(a * RS); return { y: c.y + dy * co - dz * si, z: c.z + dy * si + dz * co }; };
+const mv2 = (p, d) => ({ y: p.y + d.y, z: p.z + d.z }), sub2 = (a, b) => ({ y: a.y - b.y, z: a.z - b.z }), lerp2 = (a, b, t) => ({ y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t });
+const SIM = { on: false, ex: 'agachamento', op: null, tab: null, k: 0, base: null, g: null, cmp: null, lado: 'A', graf: 'tor', B: {} };
+function simBase() {   // pontos do corpo em pé (lado direito), uma vez
+  if (SIM.base) return SIM.base;
+  const S = POSE.S, p = v => ({ y: v.y, z: v.z }), Hm = S.H.d.clone().add(S.H.e).multiplyScalar(0.5), L5 = S.piv[0];
+  const orelha = S.mk.ore_d.r.clone().add(S.mk.ore_e.r).multiplyScalar(0.5);
+  const B = { A: p(S.A.d), K: p(S.K.d), H: p(Hm), Sm: p(S.Sm), Sh: p(S.Hh.d), L5: p(L5), meioPe: S.A.d.z + 0.04, chao: S.chao,
+    pelve: p(Hm.clone().lerp(L5, 0.5)), tronco: p(L5.clone().lerp(S.Sm, 0.45)), cabeca: p(orelha),
+    Lu: S.Hh.d.distanceTo(S.Co.d), Lf: S.Co.d.distanceTo(S.Wr.d) + 0.075, La: S.Co.d.distanceTo(S.Wr.d) };
+  return (SIM.base = B);
+}
+// pernas: canela inclina s, coxa inclina t (joelho = s + t); tronco rígido inclina u em volta do quadril
+function cadeia(s, t, u) {
+  const B = SIM.base, K = rot2(B.K, B.A, s), H = rot2(mv2(B.H, sub2(K, B.K)), K, -t), T = P => rot2(mv2(P, sub2(H, B.H)), H, u);
+  return { K, H, T };
+}
+function zcm(c, m, extra) {   // centro de massa (z) do corpo e da carga; extra: [[massa, z], ...]
+  const B = SIM.base, mb = m.massa;
+  let s = 2 * MW.pe * mb * (B.A.z + 0.05) + 2 * MW.perna * mb * lerp2(c.K, B.A, 0.433).z + 2 * MW.coxa * mb * lerp2(c.H, c.K, 0.433).z
+    + MW.pelve * mb * c.T(B.pelve).z + MW.tronco * mb * c.T(B.tronco).z + MW.cabeca * mb * c.T(B.cabeca).z, mt = (2 * (MW.pe + MW.perna + MW.coxa) + MW.pelve + MW.tronco + MW.cabeca) * mb;
+  for (const [mm, z] of extra) { s += mm * z; mt += mm; }
+  return s / mt;
+}
+const bissec = (f, alvo, lo, hi) => { for (let i = 0; i < 36; i++) { const m = (lo + hi) / 2; f(m) > alvo ? (hi = m) : (lo = m); } return (lo + hi) / 2; };
+
+// ----- exercícios -----
+// braços segurando a barra nas costas ou na frente (ângulos com o tronco na vertical; no agachamento, o ombro acompanha a inclinação do tronco)
+const BRACOS_S = {
+  alta: { ombF: 12, ombA: 24, ombR: -78, cot: 128, pron: -19, punF: 4 },
+  baixa: { ombF: 17, ombA: 15, ombR: -81, cot: 125, pron: -39, punF: -24 },
+  frontal: { ombF: 60, ombA: 0, ombR: -18, cot: 158, pron: -85, punF: -87 },
+};
+// quanto da dorsiflexão disponível cada estilo usa: na barra baixa a canela fica mais vertical e o quadril vai mais para trás; na frontal o joelho avança até o limite
+const CANELA_S = { alta: 0.85, baixa: 0.65, frontal: 1 };
+const EX_S = {
+  agachamento: {
+    nome: 'Agachamento livre', curto: 'Agachamento', grupo: 'Membros inferiores',
+    vars: [['alta', 'Barra alta'], ['baixa', 'Barra baixa'], ['frontal', 'Frontal']], chave: 'v',
+    op0: { v: 'alta', carga: 60, massa: 75, mob: 35, prof: 115 },
+    ctl: [['carga', 'Carga na barra', 0, 200, 5, 'kg'], ['prof', 'Profundidade (flexão máxima do joelho)', 60, 130, 5, '°'], ['mob', 'Mobilidade do tornozelo (dorsiflexão máxima)', 10, 45, 1, '°'], ['massa', 'Massa corporal', 40, 140, 1, 'kg']],
+    jun: ['qua', 'joe', 'tor', 'lom'], un: ['glu', 'adm', 'isq', 'vas', 'rf', 'sol', 'gas', 'ere', 'mul'],
+    est: ['Rectus abdominis muscle', 'External abdominal oblique muscle', 'Internal abdominal oblique muscle', 'Transversus abdominis muscle', 'Gluteus medius muscle'],
+    estT: 'Abdômen, oblíquos e transverso seguram a coluna (pressão dentro do abdômen); o glúteo médio mantém os joelhos alinhados com os pés.',
+    x: ['flexão do joelho', a => a.joe], dur: 3000,
+    barra0(op) { const B = SIM.base, [, dy, dz] = BARRAS[op.v]; return { y: B.Sm.y + dy, z: B.Sm.z + dz }; },
+    pose(k, op) {
+      const B = simBase(), kn = op.prof * k, s = Math.min(op.mob * CANELA_S[op.v], BARRAS[op.v][3] * kn), t = kn - s, b0 = this.barra0(op), br = SIM.B[op.v] || { y: B.Sm.y - 0.12, z: B.Sm.z + 0.02 };
+      const c = u => cadeia(s, t, u), z = u => { const q = c(u); return zcm(q, op, [[op.carga, q.T(b0).z], [MW.braco * 2 * op.massa + 2 * (MW.antebraco + MW.mao) * op.massa, q.T(br).z]]); };
+      const u = bissec(z, B.meioPe, -15, 85), A = BRACOS_S[op.v];
+      const L = { qF: t + u, joe: kn, df: s, ...A, ombF: A.ombF - u };   // no motor, os ângulos do ombro são em relação ao chão: o braço acompanha o tronco
+      return { L: { d: L, e: { ...L } }, c: { pA: u, cF: -0.4 * u, tF: 0, lF: 0 }, ang: { qua: t + u, joe: kn, tor: s, lom: 0, omb: A.ombF, cot: A.cot }, info: { s, t, u, kn } };
+    },
+    tiles: (p) => [['Joelho · flexão', p.info.kn], ['Quadril · flexão', p.ang.qua], ['Tornozelo · dorsiflexão', p.info.s], ['Tronco · inclinação', p.info.u]],
+  },
+  remada: {
+    nome: 'Remada curvada com barra', curto: 'Remada curvada', grupo: 'Costas',
+    vars: [['pronada', 'Pegada pronada'], ['supinada', 'Pegada supinada']], chave: 'pegada',
+    op0: { pegada: 'pronada', carga: 50, massa: 75, tronco: 45 },
+    ctl: [['carga', 'Carga na barra', 0, 160, 5, 'kg'], ['tronco', 'Inclinação do tronco (0° = em pé, 90° = paralelo ao chão)', 20, 90, 5, '°'], ['massa', 'Massa corporal', 40, 140, 1, 'kg']],
+    jun: ['omb', 'cot', 'lom', 'qua'], un: ['lat', 'trm', 'dep', 'trl', 'bic', 'bra', 'brr', 'ere', 'mul', 'glu', 'isq', 'adm'],
+    est: ['Transverse part of trapezius muscle', 'Rhomboid major muscle', 'Rhomboid minor muscle', 'Ascending part of trapezius muscle', 'Rectus abdominis muscle', 'External abdominal oblique muscle', 'Internal abdominal oblique muscle'],
+    estT: 'Trapézio médio e inferior e romboides puxam a escápula para trás no fim da puxada (retração, no plano transverso: fora da conta de torque). O abdômen segura a coluna.',
+    x: ['flexão do cotovelo', a => a.cot], dur: 2400,
+    // braço no plano sagital: úmero inclina beta para trás (em relação à vertical) e o antebraço fica quase na vertical (fi = inclinação à frente)
+    braco(beta, fi, q) {
+      const B = SIM.base, el = { y: q.Sh.y - B.Lu * Math.cos(beta * RS), z: q.Sh.z - B.Lu * Math.sin(beta * RS) }, dir = { y: -Math.cos(fi * RS), z: Math.sin(fi * RS) };
+      return { el, g: { y: el.y + B.Lf * dir.y, z: el.z + B.Lf * dir.z }, ca: { y: el.y + 0.43 * B.La * dir.y, z: el.z + 0.43 * B.La * dir.z }, cb: { y: q.Sh.y - 0.436 * B.Lu * Math.cos(beta * RS), z: q.Sh.z - 0.436 * B.Lu * Math.sin(beta * RS) } };
+    },
+    repouso(op) {   // no modelo em pé, o antebraço já fica um pouco à frente (cotovelo levemente fletido): medido uma vez para cada pegada
+      const ch = op.pegada; if (SIM.ant && SIM.ant[ch] != null) return SIM.ant[ch];
+      const L = this.bracos(op, 0, 0), p = { L: { d: L, e: { ...L } }, c: {} }, S = POSE.S;
+      const [f] = POSE.medir([simDef(p)], M => { const e = S.Co.d.clone().applyMatrix4(M.umerod), g = S.Wr.d.clone().add(_gp).applyMatrix4(M.maod); return Math.atan2(g.z - e.z, e.y - g.y) / RS; });
+      return ((SIM.ant = SIM.ant || {})[ch] = f);
+    },
+    bracos: (op, beta, cot) => { const pr = op.pegada === 'pronada'; return { ombF: -beta, ombA: pr ? 22 : 10, ombR: pr ? 8 : -8, cot, pron: pr ? 80 : -85, punF: 0 }; },
+    pose(k, op) {
+      const B = simBase(), u = op.tronco, mb = op.massa, s = 4, f0 = this.repouso(op), ch = [op.tronco, op.pegada].join('|');
+      const q0 = cadeia(s, 0, u), Sh0 = q0.T(B.Sh), n = { y: -Math.sin(u * RS), z: Math.cos(u * RS) };
+      if (SIM.rem !== ch) {
+        // início: braço pendurado com a barra embaixo do ombro; fim: a barra encosta no abdômen (cerca de 13 cm à frente da linha quadril–ombro) com o antebraço quase vertical
+        let lo = 0, hi = 30; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2, a = this.braco(m, f0 - m, { Sh: Sh0 }); a.g.z < Sh0.z ? (hi = m) : (lo = m); } const b0 = lo;
+        const dist = b => { const a = this.braco(b, 10, { Sh: Sh0 }); return (a.g.y - q0.H.y) * n.y + (a.g.z - q0.H.z) * n.z; };
+        lo = b0; hi = 110; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; dist(m) > 0.13 ? (lo = m) : (hi = m); }
+        SIM.rem = ch; SIM.remIni = b0; SIM.remFim = lo;
+      }
+      const e = k, beta = SIM.remIni + (SIM.remFim - SIM.remIni) * e, F0 = f0 - SIM.remIni, fi = F0 + (10 - F0) * e, cot = Math.max(0, fi - f0 + beta);
+      // a canela fica quase vertical; o quadril vai para trás o quanto for preciso para o centro de massa (corpo + barra) ficar sobre o meio do pé
+      const z = t => { const q = cadeia(s, t, u), a = this.braco(beta, fi, { Sh: q.T(B.Sh) }); return -zcm(q, op, [[op.carga, a.g.z], [2 * MW.braco * mb, a.cb.z], [2 * MW.antebraco * mb, a.ca.z], [2 * MW.mao * mb, a.g.z]]); };
+      const t = bissec(z, -B.meioPe, -10, 80), kn = s + t;
+      const L = { qF: t + u, joe: kn, df: s, ...this.bracos(op, beta, cot), escProt: 6 - 22 * e };
+      return { L: { d: L, e: { ...L } }, c: { pA: u, cF: -12, tF: 0, lF: 0 }, ang: { qua: t + u, joe: kn, tor: s, lom: 0, omb: u - beta, cot }, info: { s, t, u, kn, beta } };
+    },
+    tiles: (p) => [['Cotovelo · flexão', p.ang.cot], [p.ang.omb >= 0 ? 'Ombro · flexão (em relação ao tronco)' : 'Ombro · extensão (em relação ao tronco)', Math.abs(p.ang.omb)], ['Tronco · inclinação', p.info.u], ['Quadril · flexão', p.ang.qua], ['Joelho · flexão', p.ang.joe]],
+  },
+};
+const PROX_S = ['Puxada (pronada, supinada e triângulo)', 'Remada baixa e cavalinho', 'Levantamento terra', 'Stiff', 'Afundo', 'Elevação pélvica', 'Supino'];
+function simDef(p) { const d = defLivre({ d: p.L.d, e: p.L.e, c: p.c || {} }); d.mov.fixarPe = true; return d; }
+
+// ----- medida no corpo 3D: centros de massa, momentos e braços de momento -----
+const _gp = new THREE.Vector3(0, -0.075, 0.012);   // centro da pegada, na mão
+function simMedir(M, ex, op) {
+  const S = POSE.S, P = (v, sg) => v.clone().applyMatrix4(M[sg] || M.pelve), mb = op.massa;
+  const Hm = S.H.d.clone().add(S.H.e).multiplyScalar(0.5), L5 = S.piv[0], or = S.mk.ore_d.r.clone().add(S.mk.ore_e.r).multiplyScalar(0.5);
+  const pega = l => P(S.Wr[l].clone().add(_gp), 'mao' + l);
+  const segs = [];   // [chave, massa (kg), ponto]
+  for (const l of ['d', 'e']) segs.push(['pe', MW.pe * mb, P(S.A[l].clone().lerp(S.MTP[l], 0.45), 'pe' + l)], ['perna', MW.perna * mb, P(S.K[l].clone().lerp(S.A[l], 0.433), 'perna' + l)], ['coxa', MW.coxa * mb, P(S.H[l].clone().lerp(S.K[l], 0.433), 'coxa' + l)],
+    ['braco' + l, MW.braco * mb, P(S.Hh[l].clone().lerp(S.Co[l], 0.436), 'umero' + l)], ['antebraco' + l, MW.antebraco * mb, P(S.Co[l].clone().lerp(S.Wr[l], 0.43), 'ulna' + l)], ['mao' + l, MW.mao * mb, pega(l)]);
+  segs.push(['pelve', MW.pelve * mb, P(Hm.clone().lerp(L5, 0.5), 'pelve')], ['tronco', MW.tronco * mb, P(L5.clone().lerp(S.Sm, 0.45), 'v:Vertebra T12')], ['cabeca', MW.cabeca * mb, P(or, 'cabeca')]);
+  const gd = pega('d'), ge = pega('e');
+  const bar = ex === EX_S.remada ? gd.clone().add(ge).multiplyScalar(0.5).setX(0) : (() => { const b = ex.barra0(op); return P(new THREE.Vector3(0, b.y, b.z), 'v:Vertebra T1'); })();
+  segs.push(['barra', op.carga, bar]);
+  const J = { tor: P(S.A.d, 'pernad'), joe: P(S.K.d, 'pernad'), qua: P(S.H.d, 'coxad'), lom: P(L5, 'pelve'), omb: P(S.Hh.d, 'umerod'), cot: P(S.Co.d, 'umerod') };
+  const fora = { tor: /^pe$/, joe: /^(pe|perna)$/, qua: /^(pe|perna|coxa)$/, lom: /^(pe|perna|coxa|pelve)$/ };
+  const tau = {}, d = {}, w = {};
+  for (const j of ex.jun) {
+    let t = 0, m = 0;
+    for (const [c, mm, p] of segs) {
+      let f = 0;
+      if (fora[j]) f = fora[j].test(c) ? 0 : 1;
+      else if (j === 'omb') f = /^(bracod|antebracod|maod)$/.test(c) ? 1 : c === 'barra' ? 0.5 : 0;
+      else if (j === 'cot') f = /^(antebracod|maod)$/.test(c) ? 1 : c === 'barra' ? 0.5 : 0;
+      t += f * mm * (p.z - J[j].z); m += f * mm;
+    }
+    const div = JS[j].lado === 'perna' ? 2 : 1; tau[j] = G * t / div; w[j] = G * m / div; d[j] = m ? t / m : 0;
+  }
+  let sz = 0, sm = 0; for (const [, mm, p] of segs) { sz += mm * p.z; sm += mm; }
+  return { J, tau, d, w, bar, gd, ge, cmz: sz / sm };
+}
+function simTabela(ex, op) {   // 41 poses ao longo do movimento: ângulos, momentos, esforço e comprimento dos músculos
+  const ks = Array.from({ length: 41 }, (_, i) => i / 40), ps = ks.map(k => ex.pose(k, op));
+  const med = POSE.medir(ps.map(simDef), M => simMedir(M, ex, op));
+  return ks.map((k, i) => {
+    const p = ps[i], m = med[i], ef = simEsforco(m.tau, p.ang, op, ex.un), comp = {}; for (const id of ex.un) comp[id] = simComp(p.ang, op, id);
+    return { k, p, tau: m.tau, d: m.d, ef, comp, x: ex.x[1](p.ang) };
+  });
+}
+
+// ----- desenho no modelo: barra, linha da gravidade, braço de momento de cada articulação e centro de massa -----
+function simPrepararG() {
+  if (SIM.g) return SIM.g;
+  const g = new THREE.Group(); g.visible = false; scene.add(g); SIM.g = g;
+  const ferro = new THREE.MeshStandardMaterial({ color: '#9aa6b5', metalness: 0.6, roughness: 0.3, emissive: '#1b2430' });
+  const anilha = new THREE.MeshStandardMaterial({ color: '#3b4a5e', roughness: 0.6, transparent: true, opacity: 0.22, depthWrite: false });   // translúcidas: na vista de lado a anilha fica na frente do corpo
+  const barra = new THREE.Group(); barra.add(new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 2.0, 16).rotateZ(Math.PI / 2), ferro));
+  SIM.anilhas = [];
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 4; i++) { const a = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.225, 0.032, 36).rotateZ(Math.PI / 2), anilha); a.position.x = s * (0.6 + i * 0.036); barra.add(a); SIM.anilhas.push([a, i]); }
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 16).rotateZ(Math.PI / 2), ferro); col.position.x = s * 0.565; barra.add(col);
+  }
+  g.add(barra); SIM.barra3d = barra;
+  const linha = (cor, dash, op = 1) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 1, 0)]), dash ? new THREE.LineDashedMaterial({ color: cor, dashSize: 0.012, gapSize: 0.008, depthTest: false, transparent: true, opacity: op }) : new THREE.LineBasicMaterial({ color: cor, depthTest: false, transparent: true, opacity: op })); l.renderOrder = 22; l.frustumCulled = false; g.add(l); return l; };
+  const esf = new THREE.SphereGeometry(1, 16, 12), cone = new THREE.ConeGeometry(1, 2.2, 12).rotateX(Math.PI);
+  SIM.linhaG = linha('#ffd43b', false, 0.9);
+  SIM.alav = {};
+  for (const [j, J] of Object.entries(JS)) {
+    const mat = new THREE.MeshBasicMaterial({ color: J.cor, depthTest: false });
+    const bola = new THREE.Mesh(esf, mat); bola.scale.setScalar(0.011); bola.renderOrder = 23;
+    const ponta = new THREE.Mesh(cone, mat); ponta.scale.setScalar(0.009); ponta.renderOrder = 23;
+    const lv = linha(J.cor, false), vt = linha(J.cor, true, 0.85); g.add(bola, ponta);
+    SIM.alav[j] = { bola, ponta, lv, vt };
+  }
+  const cmM = new THREE.MeshBasicMaterial({ color: '#2fd3c6', depthTest: false, transparent: true, opacity: 0.9 });
+  SIM.cm = new THREE.Mesh(new THREE.RingGeometry(0.016, 0.026, 28).rotateX(-Math.PI / 2), cmM); SIM.cm.renderOrder = 23; g.add(SIM.cm);
+  return g;
+}
+const _sv = new THREE.Vector3(), _sw = new THREE.Vector3();
+function simDesenhar(m) {
+  const ex = EX_S[SIM.ex], op = SIM.op, g = SIM.g; if (!g) return;
+  const B = m.bar; SIM.barra3d.position.copy(B); SIM.barra3d.visible = op.carga > 0;
+  const nAn = op.carga <= 25 ? 0 : op.carga <= 60 ? 1 : op.carga <= 100 ? 2 : op.carga <= 140 ? 3 : 4; SIM.anilhas.forEach(([a, i]) => a.visible = i < nAn);
+  const chao = POSE.S.chao;
+  SIM.linhaG.geometry.setFromPoints([B, _sv.set(B.x, chao, B.z)]); SIM.linhaG.visible = op.carga > 0;
+  for (const [j, o] of Object.entries(SIM.alav)) {
+    const on = ex.jun.includes(j); o.bola.visible = o.ponta.visible = o.lv.visible = o.vt.visible = on; if (!on) continue;
+    const P = m.J[j], dz = m.d[j], fim = _sw.set(P.x, P.y, P.z + dz);
+    o.bola.position.copy(P); o.lv.geometry.setFromPoints([P, fim]);
+    o.vt.geometry.setFromPoints([fim, _sv.set(P.x, P.y - 0.07, P.z + dz)]); o.vt.computeLineDistances();
+    o.ponta.position.set(P.x, P.y - 0.07, P.z + dz);
+  }
+  SIM.cm.position.set(0, chao + 0.003, m.cmz);
+}
+function simRotulos(m) {
+  const ex = EX_S[SIM.ex], out = [], mx = Math.max(...ex.jun.map(j => Math.abs(m.tau[j])));
+  for (const j of ex.jun) {
+    const P = m.J[j], dz = m.d[j], t = Math.abs(m.tau[j]); if (t < 0.12 * mx) continue;   // sem rótulo para torques pequenos (a alavanca continua desenhada)
+    // no celular: só o número, ao lado da articulação e do lado oposto da alavanca (a cor identifica a articulação)
+    out.push(CEL() ? { p: P.clone().add(new THREE.Vector3(0, j === 'lom' ? 0.045 : j === 'qua' ? -0.02 : 0, 0)), t: `${f1(t, 0)} N·m`, c: JS[j].cor, esq: dz > 0 } : { p: new THREE.Vector3(P.x, P.y, P.z + dz), t: `${JS[j].n} ${f1(t, 0)} N·m · ${f1(Math.abs(dz) * 100, 0)} cm`, c: JS[j].cor, esq: dz < 0 });
+  }
+  return out;
+}
+
+// ----- cores dos músculos pelo esforço (mapa de calor) -----
+const CALOR = [[0, '#33415c'], [0.25, '#ffd43b'], [0.55, '#ff8a3d'], [0.85, '#ff3b5c'], [1, '#ff1744']].map(([t, c]) => [t, new THREE.Color(c)]);
+const calor = (p, out = new THREE.Color()) => { const t = lim(p / 100, 0, 1); for (let i = 1; i < CALOR.length; i++) if (t <= CALOR[i][0]) { const [a, ca] = CALOR[i - 1], [b, cb] = CALOR[i]; return out.copy(ca).lerp(cb, (t - a) / (b - a)); } return out.copy(CALOR[CALOR.length - 1][1]); };
+const NEUTRO_S = new THREE.Color('#5d5560'), EST_S = new THREE.Color('#2fd3c6');
+function simCorPrep(ex) {   // guarda as malhas de cada unidade e apaga os outros músculos
+  const porB = {}; for (const [n, e] of Object.entries(E)) if (e.c === 'musculos' && MESH[n]) (porB[e.b] = porB[e.b] || []).push(n);
+  for (const [n, m] of Object.entries(MESH)) if (m.userData.camada === 'musculos') { if (!m.userData.cor0) m.userData.cor0 = m.material.color.clone(); m.material.color.copy(NEUTRO_S); }
+  SIM.malhas = {}; for (const id of ex.un) SIM.malhas[id] = US[id].b.flatMap(b => porB[b] || []);
+  for (const b of ex.est) for (const n of porB[b] || []) MESH[n].material.color.copy(EST_S).multiplyScalar(0.7);
+}
+const _sc = new THREE.Color();
+function simCores(ef) { for (const [id, ns] of Object.entries(SIM.malhas || {})) { calor(ef[id] ? ef[id].p : 0, _sc); for (const n of ns) MESH[n].material.color.copy(_sc); } }
+
+// ----- painel -----
+function simInterp(k) {   // valores da tabela no ponto k (0 a 1)
+  const T = SIM.tab, x = lim(k, 0, 1) * 40, i = Math.min(39, Math.floor(x)), f = x - i, a = T[i], b = T[i + 1], L = (u, v) => u + (v - u) * f;
+  const mix = (A, Bb) => Object.fromEntries(Object.keys(A).map(key => [key, typeof A[key] === 'number' ? L(A[key], Bb[key]) : A[key]]));
+  return { tau: mix(a.tau, b.tau), d: mix(a.d, b.d), ef: Object.fromEntries(Object.keys(a.ef).map(id => [id, { p: L(a.ef[id].p, b.ef[id].p), F: L(a.ef[id].F, b.ef[id].F), j: a.ef[id].j || b.ef[id].j }])), comp: mix(a.comp, b.comp), x: L(a.x, b.x) };
+}
+function simAtualizar() {   // a cada quadro: números do painel, cores e desenho no modelo
+  if (!SIM.on || !POSE.S.M) return;
+  const ex = EX_S[SIM.ex], op = SIM.op, k = POSE.S.k, m = SIM.ult || simMedir(POSE.S.M, ex, op), p = ex.pose(k, op);
+  simDesenhar(m);
+  const ef = simEsforco(m.tau, p.ang, op, ex.un); simCores(ef);
+  if (!$('smK')) return;
+  $('smK').textContent = Math.round(k * 100) + '%'; if (document.activeElement !== $('smKs')) $('smKs').value = Math.round(k * 100);
+  $('smAng').innerHTML = ex.tiles(p).map(([n, v]) => `<div><small>${esc(n)}</small><b>${Math.round(v)}°</b></div>`).join('');
+  const mx = Math.max(20, ...SIM.tab.flatMap(r => ex.jun.map(j => Math.abs(r.tau[j]))));
+  $('smT').innerHTML = ex.jun.map(j => {
+    const t = m.tau[j], J = JS[j], quem = Math.abs(t) < 0.5 ? 'quase sem torque: a carga passa pela articulação' : simTravado(j, t, p.ang) ? 'articulação travada em extensão: ligamentos e o encaixe dos ossos seguram, quase sem músculo' : 'trabalham os ' + (t >= 0 ? J.pos : J.neg)[1];
+    return `<div class="agm"><div class="agm-t"><span><i style="background:${J.cor}"></i>${J.n}${J.lado ? ` <small>(por ${J.lado})</small>` : ''}</span><b>${f1(Math.abs(t), 0)} N·m</b></div><div class="agm-b"><i style="width:${Math.abs(t) / mx * 100}%;background:${J.cor}"></i></div><small>braço de momento ${f1(Math.abs(m.d[j]) * 100, 1)} cm · ${quem}</small></div>`;
+  }).join('');
+  const ord = ex.un.slice().sort((a, b) => ef[b].p - ef[a].p);
+  $('smE').innerHTML = ord.map(id => {
+    const e = ef[id], c = simComp(p.ang, op, id), cor = '#' + calor(e.p, _sc).getHexString();
+    return `<div class="agm"><div class="agm-t"><span><i style="background:${cor}"></i>${esc(US[id].n)}</span><b>${e.p < 0.5 ? '—' : Math.round(Math.min(e.p, 100)) + '%'}${e.p > 100 ? '+' : ''}</b></div><div class="agm-b"><i style="width:${Math.min(100, e.p)}%;background:${cor}"></i></div><small>${e.p < 0.5 ? 'sem exigência nesta posição' : `força ≈ ${f1(e.F, 0)} N (${f1(e.F / G, 0)} kgf)`} · ${Math.abs(c) < 0.3 ? 'comprimento quase de repouso' : c > 0 ? `alongado ${f1(c, 1)} cm` : `encurtado ${f1(-c, 1)} cm`}</small></div>`;
+  }).join('');
+  simGraf();
+}
+function simGraf() {
+  const cv = $('smG'); if (!cv || !SIM.tab) return; const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return; if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
+  const ex = EX_S[SIM.ex], T = SIM.tab, modo = SIM.graf;
+  let series;
+  if (modo === 'tor') series = ex.jun.map(j => [JS[j].cor, T.map(r => Math.abs(r.tau[j])), JS[j].n]);
+  else if (modo === 'esf') { const top = ex.un.slice().sort((a, b) => Math.max(...T.map(r => r.ef[b].p)) - Math.max(...T.map(r => r.ef[a].p))).slice(0, 5); series = top.map(id => [US[id].cor, T.map(r => Math.min(r.ef[id].p, 120)), US[id].n]); }
+  else { const top = ex.un.slice().sort((a, b) => Math.max(...T.map(r => Math.abs(r.comp[b]))) - Math.max(...T.map(r => Math.abs(r.comp[a])))).slice(0, 5); series = top.map(id => [US[id].cor, T.map(r => r.comp[id]), US[id].n]); }
+  const vals = series.flatMap(s => s[1]), mx = Math.max(modo === 'comp' ? 1 : 10, ...vals) * 1.08, mn = Math.min(0, ...vals) * 1.08;
+  const pl = 34, pr = 8, pt = 10, pb = 22, W = w - pl - pr, H = h - pt - pb, X = i => pl + i / 40 * W, Y = v => pt + H - (v - mn) / (mx - mn) * H;
+  x.font = '10px Instrument Sans, sans-serif'; x.fillStyle = '#73839a'; x.strokeStyle = '#243344'; x.lineWidth = 1;
+  for (const i of [0, 10, 20, 30, 40]) { x.beginPath(); x.moveTo(X(i), pt); x.lineTo(X(i), pt + H); x.stroke(); x.textAlign = 'center'; x.fillText(Math.round(T[i].x) + '°', X(i), h - 6); }
+  x.beginPath(); x.moveTo(pl, Y(0)); x.lineTo(pl + W, Y(0)); x.stroke();
+  x.textAlign = 'right'; x.fillText(f1(mx / 1.08, 0), pl - 4, Y(mx / 1.08) + 3); x.fillText('0', pl - 4, Y(0) + 3); if (mn < 0) x.fillText(f1(mn / 1.08, 0), pl - 4, Y(mn / 1.08) + 3);
+  for (const [cor, v] of series) { x.beginPath(); v.forEach((y, i) => i ? x.lineTo(X(i), Y(y)) : x.moveTo(X(i), Y(y))); x.strokeStyle = cor; x.lineWidth = 2; x.stroke(); }
+  const kx = X(lim(POSE.S.k, 0, 1) * 40); x.strokeStyle = '#2fd3c6'; x.setLineDash([4, 3]); x.beginPath(); x.moveTo(kx, pt); x.lineTo(kx, pt + H); x.stroke(); x.setLineDash([]);
+  const leg = $('smGl'); if (leg) { const html = series.map(([c, , n]) => `<span><i style="background:${c}"></i>${esc(n)}</span>`).join('') + `<span>${modo === 'tor' ? 'N·m' : modo === 'esf' ? '% da força máxima estimada' : 'cm em relação à posição anatômica (+ alongado, − encurtado)'} × ${ex.x[0]}</span>`; if (leg.innerHTML !== html) leg.innerHTML = html; }
+}
+// comparações prontas: duas versões do mesmo exercício, com os números de cada uma
+const COMP_S = [
+  { ex: 'agachamento', t: 'Barra alta × barra baixa', a: ['Barra alta', { v: 'alta' }], b: ['Barra baixa', { v: 'baixa' }],
+    txt: 'Com a barra mais baixa nas costas, o tronco inclina mais para o centro de massa continuar sobre o meio do pé. O quadril se afasta da linha da barra e o torque migra do joelho para o quadril e a lombar.' },
+  { ex: 'agachamento', t: 'Agachamento de costas × frontal', a: ['De costas (barra alta)', { v: 'alta' }], b: ['Frontal', { v: 'frontal' }],
+    txt: 'Com a barra na frente, o tronco fica mais vertical e o joelho avança mais. O quadríceps assume mais trabalho e a lombar e o quadril recebem menos torque com a mesma carga.' },
+  { ex: 'agachamento', t: 'Tornozelo travado × com boa mobilidade', a: ['Dorsiflexão de 20°', { mob: 20 }], b: ['Dorsiflexão de 40°', { mob: 40 }],
+    txt: 'Quando o tornozelo trava, o joelho não avança e o tronco precisa inclinar mais. O esforço sai do quadríceps e vai para o quadril e a lombar.' },
+  { ex: 'agachamento', t: 'Até a paralela × profundo', a: ['Até a paralela (95°)', { prof: 95 }], b: ['Profundo (125°)', { prof: 125 }],
+    txt: 'Descer mais aumenta a amplitude em que o glúteo máximo e o adutor magno trabalham alongados. No joelho, o torque chega perto do máximo na paralela e muda pouco abaixo dela.' },
+  { ex: 'remada', t: 'Tronco a 45° × paralelo ao chão', a: ['Tronco a 45°', { tronco: 45 }], b: ['Tronco a 80° (estilo Pendlay)', { tronco: 80 }],
+    txt: 'Quanto mais inclinado o tronco, mais longe a barra fica da lombar e do quadril: o torque nos extensores da coluna sobe muito. O braço puxa mais "para trás" e o latíssimo trabalha mais alongado no início.' },
+  { ex: 'remada', t: 'Pegada pronada × supinada', a: ['Pronada', { pegada: 'pronada' }], b: ['Supinada', { pegada: 'supinada' }],
+    txt: 'Com a palma para a frente (supinada), o bíceps puxa em posição mais favorável e os cotovelos ficam mais junto ao corpo. Na pronada, os cotovelos abrem mais e o braquial e o braquiorradial dividem mais a flexão do cotovelo.' },
+];
+function simPico(T, j) { let b = T[0]; for (const r of T) if (Math.abs(r.tau[j]) > Math.abs(b.tau[j])) b = r; return b; }
+function simCompHTML() {
+  const c = SIM.cmp; if (!c) return '';
+  const ex = EX_S[c.ex], opA = { ...SIM.op, ...c.a[1] }, opB = { ...SIM.op, ...c.b[1] };
+  const ta = SIM.lado === 'A' ? SIM.tab : simTabela(ex, opA), tb = SIM.lado === 'B' ? SIM.tab : simTabela(ex, opB);
+  const linhas = ex.jun.map(j => { const a = Math.abs(simPico(ta, j).tau[j]), b = Math.abs(simPico(tb, j).tau[j]), dif = a > 1 ? (b - a) / a * 100 : 0;
+    return `<tr><td><span class="dot" style="background:${JS[j].cor}"></span>${JS[j].n}</td><td>${f1(a, 0)}</td><td>${f1(b, 0)}</td><td style="color:${Math.abs(dif) < 5 ? 'var(--ink3)' : dif > 0 ? '#ff8a3d' : '#2fd3c6'}">${Math.abs(dif) < 5 ? '≈' : (dif > 0 ? '+' : '') + Math.round(dif) + '%'}</td></tr>`; }).join('');
+  const pk = (T, id) => Math.max(...T.map(r => Math.min(r.ef[id].p, 100)));
+  const mus = ex.un.map(id => [id, pk(ta, id), pk(tb, id)]).filter(([, a, b]) => Math.max(a, b) >= 5).sort((x, y) => Math.abs(y[2] - y[1]) - Math.abs(x[2] - x[1])).slice(0, 4)
+    .map(([id, a, b]) => `<tr><td>${esc(US[id].n)}</td><td>${Math.round(a)}%</td><td>${Math.round(b)}%</td><td style="color:${Math.abs(b - a) < 3 ? 'var(--ink3)' : b > a ? '#ff8a3d' : '#2fd3c6'}">${Math.abs(b - a) < 3 ? '≈' : (b > a ? '+' : '') + Math.round(b - a) + ' pts'}</td></tr>`).join('');
+  return `<div class="smcmp"><b>${esc(c.t)}</b><div class="seg" id="smAB"><button data-ab="A" class="${SIM.lado === 'A' ? 'on' : ''}">A · ${esc(c.a[0])}</button><button data-ab="B" class="${SIM.lado === 'B' ? 'on' : ''}">B · ${esc(c.b[0])}</button></div>
+    <table class="ac mt"><tr><th>Pico de torque (N·m)</th><th>A</th><th>B</th><th>B × A</th></tr>${linhas}</table>
+    ${mus ? `<table class="ac mt"><tr><th>Pico de esforço</th><th>A</th><th>B</th><th>B × A</th></tr>${mus}</table>` : ''}<p style="font-size:13px;margin:8px 0 0">${esc(c.txt)}</p>
+    <div class="acoes" style="margin-top:8px"><button data-m="sairCmp">Fechar a comparação</button></div></div>`;
+}
+function simRecalc() { SIM.tab = simTabela(EX_S[SIM.ex], SIM.op); }
+async function mostrarSim(id = SIM.ex, cmp = null) {
+  if (!EX_S[id]) id = 'agachamento';
+  await peleProntaToast(); limparDesvio(); movAtivo = { id: 'sim' }; isolado = null; filtroInsercao = null;
+  if (!visCamada.musculos) { visCamada.musculos = true; document.querySelector('[data-c=musculos]').classList.add('on'); }
+  const novoEx = SIM.ex !== id || !SIM.op; SIM.ex = id; const ex = EX_S[id]; simBase(); simPrepararG();
+  if (cmp) { SIM.cmp = cmp; SIM.lado = 'A'; SIM.op = { ...ex.op0, ...cmp.a[1] }; }
+  else { SIM.cmp = null; if (novoEx) SIM.op = { ...ex.op0 }; }
+  if (id === 'agachamento' && !SIM.B[SIM.op.v]) simBracosCM();
+  simRecalc();
+  simCorPrep(ex); SIM.on = true; SIM.g.visible = true;
+  POSE.iniciar({}, [], [], { gen: k => simDef(ex.pose(k, SIM.op)), rot: () => { if (!SIM.on) return []; SIM.ult = simMedir(POSE.S.M, EX_S[SIM.ex], SIM.op); return simRotulos(SIM.ult); }, todos: true });
+  POSE.S.aoMudar = () => simAtualizar();
+  document.querySelectorAll('#regioes .chip').forEach(b => b.classList.toggle('on', b.dataset.r === 'movimento'));
+  aplicarVis(); destacar(null); simPainel(); enquadrarP('corpo', 'lat');
+  POSE.aplicar(0); POSE.animar(1, true, ex.dur);
+}
+function simBracosCM() {   // centro de massa dos braços segurando a barra (em relação ao tronco, em pé), medido no modelo
+  for (const v of Object.keys(BRACOS_S)) {
+    const op = { ...EX_S.agachamento.op0, v }, p = { L: { d: { ...BRACOS_S[v] }, e: { ...BRACOS_S[v] } }, c: {} };
+    const [r] = POSE.medir([simDef(p)], M => { const S = POSE.S, P = (vv, sg) => vv.clone().applyMatrix4(M[sg]); let y = 0, z = 0, m = 0;
+      for (const l of ['d', 'e']) for (const [mm, pt] of [[MW.braco, P(S.Hh[l].clone().lerp(S.Co[l], 0.436), 'umero' + l)], [MW.antebraco, P(S.Co[l].clone().lerp(S.Wr[l], 0.43), 'ulna' + l)], [MW.mao, P(S.Wr[l].clone().add(_gp), 'mao' + l)]]) { y += mm * pt.y; z += mm * pt.z; m += mm; }
+      return { y: y / m, z: z / m }; });
+    SIM.B[v] = r;
+  }
+}
+function simPainel() {
+  const ex = EX_S[SIM.ex], op = SIM.op;
+  painelP('Simulador de exercícios', `<span class="tag">biomecânica</span>${esc(ex.nome)}`, `
+    <div class="acoes" style="margin:0 0 8px"><button id="bVoltaM">← Movimentos</button></div>
+    <div class="seg" id="smEx">${Object.entries(EX_S).map(([k, e]) => `<button data-ex="${k}" class="${k === SIM.ex ? 'on' : ''}">${esc(e.curto)}</button>`).join('')}</div>
+    <div id="smCmp">${simCompHTML()}</div>
+    <div class="seg" id="smV" style="margin-top:8px">${ex.vars.map(([k, t]) => `<button data-v="${k}" class="${op[ex.chave] === k ? 'on' : ''}">${esc(t)}</button>`).join('')}</div>
+    <div class="pctl" style="margin-top:10px"><div class="pctl-t"><span>Amplitude do movimento</span><output id="smK">0%</output></div>
+      <input id="smKs" type="range" min="0" max="100" step="1" value="0" aria-label="Amplitude do movimento">
+      <div class="seg"><button data-k="0">Início</button><button data-k="1">Fim</button><button id="smPlay" class="on">❚❚ Pausar</button></div></div>
+    <div class="kp mt4" id="smAng"></div>
+    ${ex.ctl.map(([k, t, a, b, st, u]) => `<div class="mv-ctl"><span>${esc(t)}</span><output id="smo_${k}">${op[k]}${u === '°' ? '°' : ' ' + u}</output><input type="range" data-c="${k}" min="${a}" max="${b}" step="${st}" value="${op[k]}"></div>`).join('')}
+    <h3>Torque em cada articulação</h3><div id="smT"></div>
+    <h3>Esforço dos músculos</h3>
+    <div class="leg" style="margin:2px 0 4px"><span><i style="background:linear-gradient(90deg,#33415c,#ffd43b,#ff8a3d,#ff3b5c);width:46px"></i>pouco → muito esforço</span><span><i style="background:#2fd3c6"></i>estabilizadores</span></div>
+    <div id="smE"></div>
+    <div class="pleg"><b style="color:#2fd3c6"><i style="background:#2fd3c6"></i>Estabilizadores</b><span>${esc(ex.estT)}</span></div>
+    <h3>Ao longo do movimento</h3>
+    <div class="abas" id="smGa"><button data-g="tor" class="${SIM.graf === 'tor' ? 'on' : ''}">Torque</button><button data-g="esf" class="${SIM.graf === 'esf' ? 'on' : ''}">Esforço</button><button data-g="comp" class="${SIM.graf === 'comp' ? 'on' : ''}">Comprimento</button></div>
+    <div class="leg" id="smGl"></div>
+    <canvas id="smG" style="width:100%;height:180px;display:block;margin-top:6px"></canvas>
+    <h3>Comparações prontas</h3><div class="lista">${COMP_S.map((c, i) => c.ex === SIM.ex ? `<button data-cmp="${i}"><i style="background:#ffb938"></i><span class="lnome">${esc(c.t)}</span><span class="pl" style="color:#ffb938">ver no simulador</span></button>` : '').join('')}</div>
+    <h3>Como ler</h3>
+    <p>No modelo, a <b style="color:#ffd43b">linha amarela</b> desce da barra até o chão. Cada articulação tem uma <b>alavanca colorida</b>: a linha horizontal vai da articulação até a linha vertical do peso que está acima dela (corpo e barra). O comprimento dessa linha é o <b>braço de momento</b>, e peso × braço de momento é o <b>torque</b> que os músculos precisam vencer.</p>
+    <p>O <b style="color:#2fd3c6">anel verde-água</b> no chão marca o centro de massa do corpo com a barra. Para ficar em equilíbrio, ele precisa ficar sobre o meio do pé.</p>
+    <p><b>Esforço:</b> o torque de cada articulação é dividido entre os músculos que podem vencê-lo, de acordo com o tamanho (área de secção) e o braço de momento de cada um. A porcentagem é a força estimada em relação à força máxima daquele músculo. As cores no modelo seguem a mesma escala.</p>
+    <p><b>Comprimento:</b> mostra se o músculo está alongado ou encurtado em relação à posição anatômica. Músculos que cruzam duas articulações (isquiotibiais, reto femoral e gastrocnêmio) podem mudar pouco de comprimento, porque uma articulação alonga e a outra encurta.</p>
+    <div class="aviso">Estimativa didática, não é medida de laboratório: modelo quase estático (sem aceleração) no plano sagital, com o corpo dividido em segmentos rígidos, massas e centros de massa pelas proporções de Winter, braços de momento médios da literatura e força máxima de cada músculo ajustada para o torque máximo típico de cada grupo num adulto treinado (corrigido pela massa corporal). Não inclui co-contração, tendões, ligamentos nem a pressão dentro do abdômen. Na remada, o tronco fica parado no ângulo escolhido, o antebraço fica quase na vertical, a canela fica quase vertical e o quadril se ajusta para o centro de massa continuar sobre o meio do pé.</div>
+    <h3>Em breve no simulador</h3><p class="pnota">${PROX_S.map(esc).join(' · ')}</p>
+    <div class="fontes">Fontes: Winter. Biomechanics and Motor Control of Human Movement · Neumann. Cinesiologia do aparelho musculoesquelético · Wretenberg, Feng e Arborelius (1996), Med Sci Sports Exerc: agachamento com barra alta e barra baixa · Escamilla (2001), Med Sci Sports Exerc: biomecânica do joelho no agachamento · Fry, Smith e Schilling (2003), J Strength Cond Res · Gullett et al. (2009), J Strength Cond Res: agachamento frontal e de costas · Fenwick, Brown e McGill (2009), J Strength Cond Res: remadas e carga na coluna · Németh e Ohlsén (1985), J Biomech: braços de momento dos extensores do quadril · Ward et al. (2009), Clin Orthop Relat Res: arquitetura dos músculos do membro inferior · Holzbaur et al. (2007), J Biomech: arquitetura dos músculos do membro superior · Crowninshield e Brand (1981), J Biomech: divisão da força entre os músculos · Modelo 3D: Z-Anatomy (CC BY-SA 4.0).</div>`);
+  const ex2 = ex, pB = $('pB');
+  const play = on => { const b = $('smPlay'); if (!b) return; b.classList.toggle('on', on); b.textContent = on ? '❚❚ Pausar' : '▶ Reproduzir'; on ? POSE.animar(POSE.S.k > 0.5 ? 0 : 1, true, ex2.dur) : POSE.parar(); };
+  const refazer = (manterK = true) => { const k = POSE.S.k; simRecalc(); POSE.aplicar(manterK ? k : 0, true); if (SIM.cmp) $('smCmp').innerHTML = simCompHTML(); };
+  pB.onclick = ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.id === 'bVoltaM') return listaMov('ex');
+    if (b.dataset.ex) { if (b.dataset.ex !== SIM.ex) mostrarSim(b.dataset.ex); return; }
+    if (b.dataset.cmp) { const c = COMP_S[+b.dataset.cmp]; mostrarSim(c.ex, c); return; }
+    if (b.dataset.m === 'sairCmp') { SIM.cmp = null; $('smCmp').innerHTML = ''; return; }
+    if (b.dataset.ab) { const k = POSE.S.k, c = SIM.cmp; SIM.lado = b.dataset.ab; SIM.op = { ...SIM.op, ...(SIM.lado === 'B' ? c.b[1] : c.a[1]) }; if (SIM.ex === 'agachamento' && !SIM.B[SIM.op.v]) simBracosCM(); simRecalc(); simPainel(); POSE.aplicar(k, true); return; }
+    if (b.dataset.v) { SIM.op[ex2.chave] = b.dataset.v; if (SIM.ex === 'agachamento' && !SIM.B[b.dataset.v]) simBracosCM(); pB.querySelectorAll('#smV button').forEach(x => x.classList.toggle('on', x === b)); refazer(); return; }
+    if (b.dataset.g) { SIM.graf = b.dataset.g; pB.querySelectorAll('#smGa button').forEach(x => x.classList.toggle('on', x === b)); simGraf(); return; }
+    if (b.id === 'smPlay') return play(!b.classList.contains('on'));
+    if (b.dataset.k !== undefined) { play(false); POSE.animar(+b.dataset.k); }
+  };
+  pB.oninput = ev => {
+    const r = ev.target; if (r.type !== 'range') return;
+    if (r.id === 'smKs') { play(false); POSE.aplicar(r.value / 100, false); return; }
+    const c = r.dataset.c; if (!c) return; SIM.op[c] = +r.value; const it = ex2.ctl.find(x => x[0] === c); $('smo_' + c).textContent = r.value + (it[5] === '°' ? '°' : ' ' + it[5]);
+    clearTimeout(SIM.hRe); SIM.hRe = setTimeout(() => refazer(), 60);
+  };
+  pB.onchange = ev => { if (ev.target.id === 'smKs') POSE.aplicar(ev.target.value / 100, true); };
+  simAtualizar();
+}
+
 /* ---------- versão celular: abas embaixo, folha que arrasta e ferramentas na lateral ---------- */
 const TAB_DE = r => /^(ombro|cotovelo|joelho)$/.test(r) ? 'regioes' : r || 'corpo';
 function marcarTab() {
@@ -2303,5 +2741,7 @@ $('painel').querySelector('.p-h').addEventListener('click', e => { if (innerWidt
 new MutationObserver(() => $('painel').classList.remove('min', 'max')).observe($('pT'), { childList: true, characterData: true, subtree: true });
 // prepara em segundo plano os pesos que deixam os músculos acompanharem os ossos
 setTimeout(() => POSE.pele(), 1200);
+// link direto para o simulador: ?sim=agachamento ou ?sim=remada
+{ const q = new URLSearchParams(location.search).get('sim'); if (q !== null) setTimeout(() => mostrarSim(EX_S[q] ? q : 'agachamento'), 400); }
 aplicarVis();
-window.__cm = { MESH, E, abrir, mostrarCreditos, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
+window.__cm = { SIM, EX_S, BRACOS_S, mostrarSim, defLivre, simDef, simMedir, simTabela, MESH, E, abrir, mostrarCreditos, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
