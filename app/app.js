@@ -115,7 +115,7 @@ function aplicarVis() {
     if (c === 'insercoes' && filtroInsercao) v = visCamada.insercoes && e.b === filtroInsercao && (!soDireito || e.l !== 'esquerdo');
     m.visible = v;
     // mostrando origem/inserção: o músculo fica translúcido para enxergar as marcas no osso
-    if (c === 'musculos') { const tr = !!filtroInsercao && e.b === filtroInsercao; if (m.material.transparent !== tr) { m.material.transparent = tr; m.material.opacity = tr ? 0.33 : 1; m.material.depthWrite = !tr; m.material.needsUpdate = true; } }
+    if (c === 'musculos' && !m.userData.tec0) { const tr = !!filtroInsercao && e.b === filtroInsercao; if (m.material.transparent !== tr) { m.material.transparent = tr; m.material.opacity = tr ? 0.33 : 1; m.material.depthWrite = !tr; m.material.needsUpdate = true; } }
   }
   if (window.POSE_ON) POSE.sinc();
 }
@@ -244,6 +244,7 @@ function regiao(r) {
   if (MOV.on) sairMov(false); if (AG.on) sairAg(false);
   $('pB').onclick = null;
   if (r === 'postura') { listaPostura(); return; }
+  if (r === 'tecidos') { mostrarTecidos(); return; }
   if (r === 'movimento') { listaMov(); return; }
   limparDesvio();
   if (r === 'corpo') { isolado = null; aplicarVis(); fechar(); CEL() ? enquadrarP('corpo', 'ant') : voar([0, 0.9, 0], 3.7, undefined, false); return; }
@@ -1439,7 +1440,7 @@ vec3 fibRot(vec3 v, vec3 ax, float sn, float cs) { return v * cs + cross(ax, v) 
 })();
 
 function limparDesvio() {
-  POSE.sair(); PE.mostrar(false); if (typeof SIM !== 'undefined' && SIM.on) { SIM.on = false; SIM.cmp = null; if (SIM.g) SIM.g.visible = false; }
+  POSE.sair(); PE.mostrar(false); if (typeof TEC !== 'undefined') sairTecidos(); if (typeof SIM !== 'undefined' && SIM.on) { SIM.on = false; SIM.cmp = null; if (SIM.g) SIM.g.visible = false; }
   for (const m of Object.values(MESH)) if (m.userData.cor0) { m.material.color.copy(m.userData.cor0); delete m.userData.cor0; }
   desvioAtivo = null;
 }
@@ -2632,6 +2633,367 @@ function simPainel() {
   simAtualizar();
 }
 
+/* ---------- tecidos: tendões, cartilagens e fáscias ---------- */
+// Os textos ficam no cofre privado (tecidos.json). Aqui: o que aparece no 3D e as ilustrações.
+const TEC = { pint: [], esc: [], on: false, tema: 'tendoes', item: null, txt: null, g: null, cart: null, env: {}, ghost: [], junta: 'joelho' };
+const COR_TEC = { tendoes: '#f2c879', cartilagens: '#8fd3ff', fascias: '#dbe8f7' };
+const COR_TIPO = { hialina: '#8fd3ff', elastica: '#ffe066', fibro: '#c9a7ff', nucleo: '#63e6be' };
+const COSTAIS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'].map(n => `Costal cartilage of ${n} rib`);
+const NIVEIS_D = ['C2-C3', 'C3-C4', 'C4-C5', 'C5-C6', 'C6-C7', 'C7-T1', 'T1-T2', 'T2-T3', 'T3-T4', 'T4-T5', 'T5-T6', 'T6-T7', 'T7-T8', 'T8-T9', 'T9-T10', 'T10-T11', 'T11-T12', 'T12-L1', 'L1-L2', 'L2-L3', 'L3-L4', 'L4-L5', 'L5-S1'];
+const COXA_M = ['Rectus femoris muscle', 'Vastus lateralis muscle', 'Vastus medialis muscle', 'Sartorius muscle', 'Gracilis muscle', 'Adductor longus', 'Adductor magnus', 'Long head of biceps femoris', 'Short head of biceps femoris', 'Semitendinosus muscle', 'Semimembranosus muscle'];
+// itens de cada tema: b = estruturas destacadas (base do nome), ctx = músculos em volta (translúcidos), cores por tipo, gerar = desenhado aqui
+const ITENS_TEC = {
+  tendoes: [
+    { id: 'calcaneo', b: ['Calcaneal tendon'], ctx: ['Soleus muscle', 'Medial head of gastrocnemius', 'Lateral head of gastrocnemius'], dir: [-0.85, 0.12, -0.55] },
+    { id: 'patelar', b: ['Patellar ligament', 'Quadriceps femoris muscle'], cam: ['insercoes'], ctx: ['Rectus femoris muscle', 'Vastus lateralis muscle', 'Vastus medialis muscle', 'Vastus intermedius muscle'], dir: [-0.75, 0.15, 0.7], foco: ['Patella'] },
+    { id: 'epicondilos', b: ['Common extensor tendon', 'Common flexor tendon'], cam: ['insercoes'], cores: { 'Common extensor tendon': '#f2c879', 'Common flexor tendon': '#ff9f43' }, ctx: ['Extensor carpi radialis brevis', 'Extensor digitorum', 'Flexor carpi radialis', 'Palmaris longus muscle', 'Superficial head of pronator teres'], dir: [-0.15, 0.25, 1], mult: 4 },
+    { id: 'extdedos', b: ['Tendon of extensor digitorum longus'], ctx: ['Extensor digitorum longus'], dir: [-0.55, 0.6, 0.7] },
+    { id: 'enteses', insercoes: true, dir: [-0.6, 0.2, 1] },
+  ],
+  cartilagens: [
+    { id: 'articular', gerar: 'cart', tipo: 'hialina' },
+    { id: 'costais', b: COSTAIS, tipo: 'hialina', dir: [-0.25, 0.15, 1] },
+    { id: 'laringe', b: ['Thyroid cartilage', 'Cricoid cartilage', 'Arytenoid cartilage', 'Corniculate cartilage'], cores: { 'Corniculate cartilage': COR_TIPO.elastica }, tipo: 'hialina', dir: [-0.55, 0.15, 1] },
+    { id: 'nariz', b: ['Nasal septal cartilage', 'Lateral process of nasal septal cartilage', 'Major alar cartilage'], tipo: 'hialina', dir: [-0.7, 0.1, 1] },
+    { id: 'meniscos', b: ['Medial meniscus', 'Lateral meniscus'], cam: ['articulacoes'], esconder: ['Femur', 'Patella'], tipo: 'fibro', dir: [-0.3, 1.3, 0.75], mult: 1.6 },
+    { id: 'discos', b: [...NIVEIS_D.map(n => 'Intervertebral disc ' + n), ...NIVEIS_D.map(n => 'Nucleus pulposus ' + n)], cam: ['articulacoes'], cores: Object.fromEntries(NIVEIS_D.map(n => ['Nucleus pulposus ' + n, COR_TIPO.nucleo])), vidro: NIVEIS_D.map(n => 'Intervertebral disc ' + n), foco: ['L1-L2', 'L2-L3', 'L3-L4', 'L4-L5', 'L5-S1'].map(n => 'Intervertebral disc ' + n), tipo: 'fibro', dir: [-1, 0.12, 0.3], mult: 1.6 },
+    { id: 'labio_ombro', b: ['Glenoid labrum'], cam: ['articulacoes'], esconder: ['Humerus'], tipo: 'fibro', dir: [-1, 0.2, 0.25], mult: 4 },
+    { id: 'labio_quadril', b: ['Acetabular labrum'], cam: ['articulacoes'], esconder: ['Femur'], tipo: 'fibro', dir: [-1, 0.15, 0.3], mult: 2.6 },
+    { id: 'sinfise', b: ['Interpubic disc', 'Pubic symphysis'], cam: ['articulacoes'], tipo: 'fibro', dir: [-0.2, 0.15, 1], mult: 4 },
+    { id: 'atm', b: ['Articular disc of temporomandibular joint'], cam: ['articulacoes'], esconder: ['Mandible'], tipo: 'fibro', dir: [-1, 0.1, 0.25], mult: 5 },
+  ],
+  fascias: [
+    { id: 'lata', gerar: 'lata', b: ['Iliotibial tract'], dir: [-1, 0.15, 0.55], mult: 0.95 },
+    { id: 'it', b: ['Iliotibial tract'], ctx: ['Gluteus maximus muscle', 'Gluteus medius muscle'], dir: [-1, 0.12, 0.2] },
+    { id: 'plantar', b: ['Plantar aponeurosis'], dir: [-1, -0.45, 0.35], mult: 1.5 },
+    { id: 'palmar', b: ['Palmar aponeurosis'], dir: [-0.6, 0.2, 1] },
+    { id: 'alba', b: ['Linea alba'], ctx: ['Rectus abdominis muscle', 'External abdominal oblique muscle'], op: 0.7, dir: [-0.2, 0.1, 1] },
+    { id: 'galea', b: ['Epicranial aponeurosis'], ctx: ['Frontalis muscle', 'Occipitalis muscle'], dir: [-0.8, 0.5, 0.6] },
+    { id: 'epimisio', gerar: 'epi', ctx: ['Long head of biceps brachii', 'Short head of biceps brachii'], lado: 'direito', dir: [-0.7, 0.15, 1] },
+    { id: 'toracolombar', b: ['Latissimus dorsi muscle', 'Gluteus maximus muscle'], cores: { 'Latissimus dorsi muscle': '#4dabf7', 'Gluteus maximus muscle': '#ff5d73' }, cruzado: true, dir: [0.1, 0.1, -1] },
+  ],
+};
+// articulações da cartilagem desenhada: pares de ossos (a superfície de cada um que fica de frente para o outro)
+const JUNTAS_C = {
+  joelho: { n: 'Joelho', pares: [['Femur', 'Tibia'], ['Femur', 'Patella']], foco: ['Patella', 'Femur'], fz: 0.25, dir: [-0.75, 0.35, 0.9] },
+  quadril: { n: 'Quadril', pares: [['Femur', 'Hip bone']], foco: ['Femur'], fy: 0.95, dir: [-1, 0.2, 0.45] },
+  ombro: { n: 'Ombro', pares: [['Humerus', 'Scapula'], ['Clavicle', 'Scapula']], foco: ['Humerus'], fy: 0.88, dir: [-0.9, 0.3, 0.9] },
+  cotovelo: { n: 'Cotovelo', pares: [['Humerus', 'Ulna'], ['Humerus', 'Radius'], ['Radius', 'Ulna']], foco: ['Humerus'], fy: 0.06, dir: [-0.6, 0.25, 1] },
+  tornozelo: { n: 'Tornozelo', pares: [['Tibia', 'Talus'], ['Fibula', 'Talus'], ['Talus', 'Calcaneus'], ['Talus', 'Navicular bone']], foco: ['Talus'], dir: [-0.9, 0.3, 0.6] },
+};
+const malhasDe = (bases, lado) => { const s = new Set(bases), outro = lado === 'direito' ? 'esquerdo' : 'direito'; return Object.keys(E).filter(n => s.has(E[n].b) && MESH[n] && (!lado || E[n].l !== outro)); };
+
+// ---- geometria: casca de cartilagem nas superfícies de contato e envoltório de fáscia sobre os músculos ----
+function verticesMundo(m) {
+  const p = m.geometry.attributes.position, out = new Float32Array(p.count * 3), v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld); out[i * 3] = v.x; out[i * 3 + 1] = v.y; out[i * 3 + 2] = v.z; }
+  return out;
+}
+function normaisMundo(m) {
+  const g = m.geometry.clone(); g.deleteAttribute('normal'); g.computeVertexNormals();
+  const n = g.attributes.normal, nm = new THREE.Matrix3().getNormalMatrix(m.matrixWorld), out = new Float32Array(n.count * 3), v = new THREE.Vector3();
+  for (let i = 0; i < n.count; i++) { v.fromBufferAttribute(n, i).applyMatrix3(nm).normalize(); out[i * 3] = v.x; out[i * 3 + 1] = v.y; out[i * 3 + 2] = v.z; }
+  g.dispose(); return out;
+}
+function grade(P, h) { const G = new Map(); for (let i = 0; i < P.length / 3; i++) { const k = `${Math.floor(P[i * 3] / h)},${Math.floor(P[i * 3 + 1] / h)},${Math.floor(P[i * 3 + 2] / h)}`; let a = G.get(k); if (!a) G.set(k, a = []); a.push(i); } return G; }
+function maisPerto(G, P, h, x, y, z) {
+  const cx = Math.floor(x / h), cy = Math.floor(y / h), cz = Math.floor(z / h); let best = Infinity, bi = -1;
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+    const L = G.get(`${cx + a},${cy + b},${cz + c}`); if (!L) continue;
+    for (const i of L) { const d = (P[i * 3] - x) ** 2 + (P[i * 3 + 1] - y) ** 2 + (P[i * 3 + 2] - z) ** 2; if (d < best) { best = d; bi = i; } }
+  }
+  return [Math.sqrt(best), bi];
+}
+// triângulos do osso A que ficam de frente para o osso B (perto, ou um pouco mais longe mas virados para ele): viram uma casca de 2 mm
+function cascaContato(A, B, perto = 0.009, longe = 0.022, esp = 0.0013) {
+  const PA = verticesMundo(A), NA = normaisMundo(A), PB = verticesMundo(B), G = grade(PB, longe), n = PA.length / 3, sel = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = PA[i * 3], y = PA[i * 3 + 1], z = PA[i * 3 + 2], [d, j] = maisPerto(G, PB, longe, x, y, z);
+    if (j < 0) continue;
+    if (d < perto) { sel[i] = 1; continue; }
+    if (d < longe) { const dx = (PB[j * 3] - x) / d, dy = (PB[j * 3 + 1] - y) / d, dz = (PB[j * 3 + 2] - z) / d; if (NA[i * 3] * dx + NA[i * 3 + 1] * dy + NA[i * 3 + 2] * dz > 0.55) sel[i] = 1; }
+  }
+  const idx = A.geometry.index ? A.geometry.index.array : [...Array(n).keys()], pos = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t], b = idx[t + 1], c = idx[t + 2]; if (sel[a] + sel[b] + sel[c] < 3) continue;
+    for (const v of [a, b, c]) pos.push(PA[v * 3] + NA[v * 3] * esp, PA[v * 3 + 1] + NA[v * 3 + 1] * esp, PA[v * 3 + 2] + NA[v * 3 + 2] * esp);
+  }
+  if (!pos.length) return null;
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals(); return g;
+}
+function envoltorio(m, esp) {   // a mesma superfície do músculo, empurrada para fora: representa a fáscia em volta dele
+  const P = verticesMundo(m), N = normaisMundo(m), n = P.length / 3, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n * 3; i++) pos[i] = P[i] + N[i] * esp;
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); if (m.geometry.index) g.setIndex(m.geometry.index.clone()); g.computeVertexNormals(); return g;
+}
+function tecG() {
+  if (TEC.g) return TEC.g;
+  TEC.g = new THREE.Group(); TEC.g.visible = false; scene.add(TEC.g);
+  TEC.matCart = new THREE.MeshStandardMaterial({ color: '#9fdcff', emissive: '#12324a', roughness: 0.18, metalness: 0, transparent: true, opacity: 0.94, polygonOffset: true, polygonOffsetFactor: -2 });
+  TEC.matFasc = new THREE.MeshStandardMaterial({ color: '#eef5ff', emissive: '#2a3a55', roughness: 0.35, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide });
+  return TEC.g;
+}
+function tecCartilagem() {   // desenha uma vez, para os dois lados
+  if (TEC.cart) return TEC.cart; tecG(); scene.updateMatrixWorld(true);
+  TEC.cart = {};
+  for (const [k, J] of Object.entries(JUNTAS_C)) {
+    const grupo = new THREE.Group(); grupo.visible = false; TEC.g.add(grupo); TEC.cart[k] = grupo;
+    for (const l of ['direito', 'esquerdo']) for (const [a, b] of J.pares) {
+      const [ma] = malhasDe([a], l), [mb] = malhasDe([b], l); if (!ma || !mb) continue;
+      for (const [x, y] of [[ma, mb], [mb, ma]]) { const g = cascaContato(MESH[x], MESH[y]); if (g) { const me = new THREE.Mesh(g, TEC.matCart); me.userData.lado = l; grupo.add(me); } }
+    }
+  }
+  return TEC.cart;
+}
+function tecEnvoltorio(id, bases, esp, lado) {
+  if (TEC.env[id]) return TEC.env[id]; tecG(); scene.updateMatrixWorld(true);
+  const grupo = new THREE.Group(); grupo.visible = false; TEC.g.add(grupo); TEC.env[id] = grupo;
+  for (const n of malhasDe(bases, lado)) { const me = new THREE.Mesh(envoltorio(MESH[n], esp), TEC.matFasc); me.renderOrder = 5; grupo.add(me); }
+  return grupo;
+}
+
+// ---- mostrar um item no 3D ----
+function tecRestaurar() {
+  for (const n of TEC.esc || []) oculto.delete(n); TEC.esc = [];
+  for (const m of TEC.pint) { m.material.emissive.copy(m.userData.emT); delete m.userData.emT; } TEC.pint = [];
+  for (const m of TEC.ghost) { const o = m.userData.tec0; if (o) { m.material.transparent = o.t; m.material.opacity = o.o; m.material.depthWrite = o.d; m.material.needsUpdate = true; delete m.userData.tec0; } }
+  TEC.ghost = []; if (TEC.g) TEC.g.children.forEach(c => c.visible = false);
+}
+function fantasma(n, op = 0.2) { const m = MESH[n]; if (!m) return; if (!m.userData.tec0) m.userData.tec0 = { t: m.material.transparent, o: m.material.opacity, d: m.material.depthWrite }; m.material.transparent = true; m.material.opacity = op; m.material.depthWrite = false; m.material.needsUpdate = true; TEC.ghost.push(m); }
+function pintar(n, cor) { const m = MESH[n]; if (!m) return; if (!m.userData.cor0) m.userData.cor0 = m.material.color.clone(); m.material.color.set(cor); if (!m.userData.emT) { m.userData.emT = m.material.emissive.clone(); TEC.pint.push(m); } m.material.emissive.set(cor).multiplyScalar(0.28); }   // brilho leve: aparece mesmo do lado da sombra
+function tecFoco(nomes, dir, fy, fz, mult = 1.25) {   // enquadra as malhas na área livre da tela (lado direito do corpo)
+  scene.updateMatrixWorld(true);
+  const b = new THREE.Box3(); for (const n of nomes) if (MESH[n]) b.expandByObject(MESH[n]); else if (n && n.isObject3D) b.expandByObject(n);
+  if (b.isEmpty()) return;
+  const c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
+  if (fy != null) c.y = b.min.y + s.y * fy; if (fz != null) { s.multiplyScalar(fz); }
+  const t = Math.tan(cam.fov * Math.PI / 360), r = Math.max(s.x, s.y, s.z) * 0.5, dist = Math.max(0.3, mult * r / (t * Math.min(1, cam.aspect)) + r);
+  voar(c.toArray(), dist, new THREE.Vector3(...(dir || [-0.6, 0.2, 1])));
+}
+async function tecItem(id, junta) {
+  const def = ITENS_TEC[TEC.tema].find(x => x.id === id); if (!def) return;
+  if (!TEC.on && !TEC.cam0) TEC.cam0 = { ...visCamada };
+  TEC.item = id; TEC.trocando = true; limparDesvio(); TEC.trocando = false; tecRestaurar(); TEC.on = true; tecG().visible = true;
+  movAtivo = { id: 'tec' }; filtroInsercao = null;
+  for (const c of def.cam || []) { visCamada[c] = true; document.querySelector(`[data-c=${c}]`)?.classList.add('on'); await garantir(c); }
+  if (!visCamada.ossos) { visCamada.ossos = true; document.querySelector('[data-c=ossos]').classList.add('on'); }
+  const lado = def.lado || null, alvo = [], vis = new Set();
+  const cor = TEC.tema === 'cartilagens' ? COR_TIPO[def.tipo] || COR_TEC.cartilagens : COR_TEC[TEC.tema];
+  if (def.b) { visCamada.musculos = true; document.querySelector('[data-c=musculos]').classList.add('on');
+    for (const n of malhasDe(def.b, lado)) {
+      if (def.cruzado && ((E[n].b === 'Latissimus dorsi muscle' && E[n].l !== 'direito') || (E[n].b === 'Gluteus maximus muscle' && E[n].l !== 'esquerdo'))) continue;
+      vis.add(n); alvo.push(n); pintar(n, (def.cores && def.cores[E[n].b]) || cor);
+    } }
+  TEC.esc = malhasDe(def.esconder || []).filter(n => !oculto.has(n)); TEC.esc.forEach(n => oculto.add(n));
+  for (const n of malhasDe(def.ctx || [], def.lado)) { vis.add(n); if (def.gerar !== 'epi') fantasma(n, def.op || 0.22); }
+  for (const n of malhasDe(def.vidro || [])) fantasma(n, 0.4);
+  if (def.insercoes) { visCamada.insercoes = true; document.querySelector('[data-c=insercoes]').classList.add('on'); await garantir('insercoes'); for (const n of Object.keys(E)) if (E[n].c === 'insercoes' && MESH[n]) vis.add(n); }
+  let foco = alvo;
+  if (def.gerar === 'cart') {
+    const C = tecCartilagem(), j = junta || TEC.junta, J = JUNTAS_C[j]; TEC.junta = j; C[j].visible = true;
+    isolado = vis; aplicarVis(); destacar(null);
+    tecFoco(C[j].children.filter(m => m.userData.lado === 'direito'), J.dir, null, null, J.mult || 2.2);
+  } else {
+    if (def.gerar === 'lata') { visCamada.musculos = true; for (const n of malhasDe(COXA_M)) vis.add(n); tecEnvoltorio('lata', COXA_M, 0.0025).visible = true; foco = malhasDe(COXA_M, 'direito'); }
+    if (def.gerar === 'epi') { visCamada.musculos = true; tecEnvoltorio('epi', def.ctx, 0.003, 'direito').visible = true; foco = malhasDe(def.ctx, 'direito'); }
+    isolado = vis; aplicarVis(); destacar(null);
+    const fr = def.foco ? malhasDe(def.foco, 'direito') : foco.filter(n => !E[n] || E[n].l !== 'esquerdo');
+    if (def.id === 'enteses') enquadrarP('corpo', 'ant');
+    else tecFoco(fr.length ? fr : foco, def.dir, null, def.fz, def.mult);
+  }
+  sujar(); tecCartao();
+}
+function tecCartao() {
+  const el = $('tecItem'); if (!el || !TEC.txt) return;
+  const def = ITENS_TEC[TEC.tema].find(x => x.id === TEC.item), t = TEC.txt[TEC.tema].itens[TEC.item] || {};
+  const ficha = def && def.b ? malhasDe(def.b).find(n => INFO[E[n].b]) : null;
+  const tipos = TEC.tema === 'cartilagens' ? `<div class="leg" style="margin-top:6px">${[['hialina', 'Hialina'], ['elastica', 'Elástica'], ['fibro', 'Fibrocartilagem']].concat(def.id === 'discos' ? [['nucleo', 'Núcleo pulposo']] : []).map(([k, n]) => `<span><i style="background:${COR_TIPO[k]}"></i>${n}</span>`).join('')}</div>` : '';
+  el.innerHTML = `<div class="tecard" style="--k:${TEC.tema === 'cartilagens' ? COR_TIPO[def.tipo] : COR_TEC[TEC.tema]}"><small>${esc(t.tipo || '')}</small><b>${esc(t.nome || '')}</b><p>${t.txt || ''}</p>${tipos}
+    ${def.gerar === 'cart' ? `<div class="seg" id="tecJ">${Object.entries(JUNTAS_C).map(([k, J]) => `<button data-j="${k}" class="${k === TEC.junta ? 'on' : ''}">${J.n}</button>`).join('')}</div>` : ''}
+    ${ficha ? `<div class="acoes" style="margin-top:8px"><button data-ficha="${esc(ficha)}">Abrir a ficha</button></div>` : ''}</div>`;
+  $('pB').querySelectorAll('#tecLista button').forEach(b => b.classList.toggle('on', b.dataset.i === TEC.item));
+}
+
+// ---- ilustrações ----
+const SVGT = (h, corpo, leg) => `<figure class="tfig"><svg viewBox="0 0 360 ${h}" role="img" aria-label="${esc(leg || '')}" font-family="Instrument Sans, system-ui, sans-serif">${corpo}</svg>${leg ? `<figcaption>${leg}</figcaption>` : ''}</figure>`;
+const tx = (x, y, s, o = {}) => `<text x="${x}" y="${y}" font-size="${o.fs || 10.5}" fill="${o.c || '#c9d2e3'}" text-anchor="${o.a || 'middle'}" font-weight="${o.w || 600}">${s}</text>`;
+const seta = (x1, y1, x2, y2, c = '#7f8db0') => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="1.6"/><path d="M${x2},${y2} l-6,-3.5 v7z" fill="${c}" transform="rotate(${Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI} ${x2} ${y2})"/>`;
+const onda = (x, y0, y1, a, fase, k = 0.32) => { let d = ''; for (let y = y0; y <= y1; y += 2) d += (y === y0 ? 'M' : 'L') + (x + a * Math.sin(y * k + fase)).toFixed(1) + ',' + y; return d; };
+let _sr = 7; const rnd = () => ((_sr = (_sr * 16807) % 2147483647) / 2147483647);
+const FIG_T = {
+  hierarquia() {
+    const xs = [36, 108, 180, 252, 324], ou = '#f2c879', ou2 = '#d9a441'; let s = '';
+    s += [0, 2.1, 4.2].map((f, i) => `<path d="${onda(36, 40, 140, 6, f, 0.22)}" fill="none" stroke="${['#ffe08a', ou, ou2][i]}" stroke-width="2.6" stroke-linecap="round"/>`).join('');
+    s += `<rect x="100" y="40" width="16" height="100" rx="8" fill="${ou}"/>` + Array.from({ length: 12 }, (_, i) => `<rect x="100" y="${44 + i * 8}" width="16" height="3.2" fill="${ou2}"/>`).join('');
+    s += [-12, -6, 0, 6, 12].map(dx => `<path d="${onda(180 + dx, 40, 140, 2.2, dx, 0.5)}" fill="none" stroke="${ou}" stroke-width="5" stroke-linecap="round"/>`).join('');
+    _sr = 11; let pts = ''; for (let i = 0; i < 46; i++) { const a = rnd() * 6.28, r = Math.sqrt(rnd()) * 25; pts += `<circle cx="${(252 + r * Math.cos(a)).toFixed(1)}" cy="${(90 + r * Math.sin(a)).toFixed(1)}" r="2.3" fill="${ou2}"/>`; }
+    s += `<circle cx="252" cy="90" r="30" fill="#fff1cf"/>${pts}<circle cx="252" cy="90" r="30" fill="none" stroke="#2fd3c6" stroke-width="2.4"/>`;
+    s += `<circle cx="324" cy="90" r="36" fill="#fff1cf" stroke="#ff8fa3" stroke-width="3"/><circle cx="324" cy="90" r="41" fill="none" stroke="#ff8fa3" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+    for (const [dx, dy] of [[0, 0], [-15, -15], [15, -15], [-19, 7], [19, 7], [-6, 21], [9, 21]]) { s += `<circle cx="${324 + dx}" cy="${90 + dy}" r="8.6" fill="#ffe6ad" stroke="#2fd3c6" stroke-width="1.4"/>`; for (let i = 0; i < 4; i++) s += `<circle cx="${(324 + dx + (i % 2 ? 2.6 : -2.6)).toFixed(1)}" cy="${(90 + dy + (i < 2 ? -2.6 : 2.6)).toFixed(1)}" r="1.5" fill="${ou2}"/>`; }
+    for (let i = 0; i < 4; i++) s += seta(xs[i] + (i === 3 ? 33 : 17), 90, xs[i + 1] - (i === 3 ? 43 : 34), 90);
+    const nomes = ['Molécula de colágeno', 'Fibrila', 'Fibra', 'Fascículo', 'Tendão'], esc_ = ['nanômetros', 'nanômetros', 'micrômetros', 'décimos de mm', 'milímetros'];
+    xs.forEach((x0, i) => { const x = i === 0 ? x0 + 7 : x0; s += tx(x, 168, nomes[i].split(' ')[0], { c: '#f2f4fa', w: 700, fs: 11 }); if (i === 0) s += tx(x, 180, 'de colágeno', { c: '#f2f4fa', w: 700, fs: 10.5 }); s += tx(x, i === 0 ? 193 : 181, esc_[i], { c: '#7f8db0', fs: 9.5, w: 500 }); });
+    s += tx(252, 214, 'endotendão', { c: '#2fd3c6', fs: 10 }) + tx(324, 214, 'epitendão', { c: '#ff8fa3', fs: 10 }) + tx(324, 226, 'e paratendão', { c: '#ff8fa3', fs: 10 });
+    s += tx(43, 214, 'tripla hélice', { c: '#7f8db0', fs: 10 }) + tx(108, 214, 'com estrias', { c: '#7f8db0', fs: 10 }) + tx(180, 214, 'ondulada', { c: '#7f8db0', fs: 10 });
+    s = `<g transform="translate(-7,0)">${s}</g>`;
+    return SVGT(234, s, 'Cada nível junta muitas unidades do nível anterior. As cores das membranas mostram onde fica cada envoltório.');
+  },
+  pontas() {
+    let s = `<rect x="8" y="60" width="138" height="56" rx="10" fill="#c43d4b"/>`;
+    for (let y = 66; y < 112; y += 7) s += `<line x1="14" y1="${y}" x2="134" y2="${y}" stroke="#ff8b98" stroke-width="2.2"/>`;
+    s += `<path d="M146,60 ${Array.from({ length: 8 }, (_, i) => `L${i % 2 ? 136 : 160},${60 + i * 8}`).join(' ')} L146,116 Z" fill="#f2c879"/>`;
+    s += `<rect x="150" y="66" width="128" height="44" fill="#f2c879"/>`;
+    for (let y = 70; y < 108; y += 6) s += `<path d="${Array.from({ length: 33 }, (_, i) => (i ? 'L' : 'M') + (154 + i * 3.8).toFixed(1) + ',' + (y + 1.6 * Math.sin(i * 1.3)).toFixed(1)).join(' ')}" fill="none" stroke="#d9a441" stroke-width="1.4"/>`;
+    s += `<rect x="278" y="62" width="22" height="52" fill="#c9a7ff"/>`; _sr = 3; for (let i = 0; i < 9; i++) s += `<ellipse cx="${282 + (i % 3) * 7}" cy="${70 + Math.floor(i / 3) * 15}" rx="2.6" ry="1.8" fill="#6e4bb5"/>`;
+    s += `<rect x="300" y="60" width="14" height="56" fill="#9a8fb8"/><line x1="300" y1="58" x2="300" y2="118" stroke="#2fd3c6" stroke-width="1.6" stroke-dasharray="3 2"/>`;
+    s += `<rect x="314" y="44" width="40" height="88" rx="6" fill="#e9e2d2"/>`; for (let i = 0; i < 14; i++) s += `<circle cx="${320 + (i * 13) % 30}" cy="${52 + (i * 17) % 72}" r="3.6" fill="#c9bea6"/>`;
+    s += tx(76, 46, 'Músculo', { c: '#ff8b98', w: 700, fs: 11.5 }) + tx(152, 34, 'Junção', { c: '#f2f4fa', w: 700 }) + tx(152, 46, 'miotendínea', { c: '#f2f4fa', w: 700 }) + tx(214, 46, 'Tendão', { c: '#f2c879', w: 700, fs: 11.5 }) + tx(289, 34, 'Êntese', { c: '#c9a7ff', w: 700, fs: 11.5 }) + tx(336, 34, 'Osso', { c: '#e9e2d2', w: 700, fs: 11.5 });
+    s += tx(300, 140, 'fibrocartilagem que', { c: '#c9a7ff', fs: 9.5 }) + tx(300, 152, 'vai calcificando', { c: '#9a8fb8', fs: 9.5 }) + tx(152, 136, 'dobras que aumentam o contato', { c: '#7f8db0', fs: 9.5 });
+    return SVGT(158, s, 'Da contração ao osso: o tendão é ondulado em repouso e a êntese faz a transição gradual para o osso.');
+  },
+  curva() {
+    const X = e => 40 + e * 30, Y = f => 168 - f * 140; let s = '';
+    s += `<rect x="${X(0)}" y="20" width="${X(2) - X(0)}" height="148" fill="#2fd3c614"/><rect x="${X(2)}" y="20" width="${X(4.5) - X(2)}" height="148" fill="#ffd43b14"/><rect x="${X(4.5)}" y="20" width="${X(8) - X(4.5)}" height="148" fill="#ff8a3d14"/><rect x="${X(8)}" y="20" width="${X(10) - X(8)}" height="148" fill="#ff3b5c14"/>`;
+    s += `<line x1="40" y1="168" x2="345" y2="168" stroke="#5b6a8c"/><line x1="40" y1="168" x2="40" y2="16" stroke="#5b6a8c"/>`;
+    for (const e of [0, 2, 4, 6, 8, 10]) s += tx(X(e), 182, e + '%', { c: '#7f8db0', fs: 9.5, w: 500 });
+    let d = ''; for (let e = 0; e <= 10; e += 0.1) { let f; if (e < 2) f = 0.06 * e * e; else if (e < 4.5) f = 0.24 + 0.2 * (e - 2); else if (e < 8) f = 0.74 + 0.2 * (e - 4.5) - 0.028 * (e - 4.5) ** 2; else f = Math.max(0, 1.08 - 0.55 * (e - 8) ** 1.5); d += (e ? 'L' : 'M') + X(e).toFixed(1) + ',' + Y(f).toFixed(1); }
+    s += `<path d="${d}" fill="none" stroke="#f2c879" stroke-width="3" stroke-linejoin="round"/>`;
+    s += tx(X(1), 34, 'pé', { c: '#2fd3c6', w: 700 }) + tx(X(1), 46, 'a ondulação', { c: '#2fd3c6', fs: 9.5 }) + tx(X(1), 57, 'se desfaz', { c: '#2fd3c6', fs: 9.5 });
+    s += tx(X(3.25), 34, 'linear', { c: '#ffd43b', w: 700 }) + tx(X(3.25), 46, 'estica e volta', { c: '#ffd43b', fs: 9.5 });
+    s += tx(X(6.25), 34, 'microrrupturas', { c: '#ff8a3d', w: 700 }) + tx(345, 34, 'ruptura', { c: '#ff5d73', w: 700, a: 'end' });
+    s += `<path d="${onda(0, 0, 0, 0, 0)}"/>` + `<path d="M${X(0.3)},80 ${Array.from({ length: 10 }, (_, i) => `l4,${i % 2 ? -5 : 5}`).join(' ')}" fill="none" stroke="#2fd3c6" stroke-width="1.6"/><line x1="${X(2.3)}" y1="96" x2="${X(4.2)}" y2="96" stroke="#ffd43b" stroke-width="1.8"/>`;
+    s += `<text x="14" y="94" font-size="10" fill="#7f8db0" transform="rotate(-90 14 94)" text-anchor="middle">força</text>` + tx(192, 198, 'deformação (quanto o tendão estica)', { c: '#7f8db0', fs: 10, w: 500 });
+    return SVGT(206, s, 'Curva de tensão e deformação do tendão. Valores aproximados.');
+  },
+  tipos() {
+    let s = '<defs>' + [62, 180, 298].map((x, i) => `<clipPath id="tc${i}"><circle cx="${x}" cy="72" r="54"/></clipPath>`).join('') + '</defs>';
+    const cel = (x, y, rx = 4.4, ry = 3.4, rot = 0) => `<ellipse cx="${x}" cy="${y}" rx="${rx + 2.4}" ry="${ry + 2.2}" fill="#ffffff55" transform="rotate(${rot} ${x} ${y})"/><ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="#3b4f8f" transform="rotate(${rot} ${x} ${y})"/><circle cx="${x}" cy="${y}" r="1.5" fill="#c9d6ff"/>`;
+    _sr = 5; let a = `<g clip-path="url(#tc0)"><rect x="0" y="0" width="130" height="140" fill="#a8cdf5"/>`;
+    for (let i = 0; i < 9; i++) { const x = 22 + (i % 3) * 30 + rnd() * 8, y = 34 + Math.floor(i / 3) * 30 + rnd() * 8, n = 1 + Math.floor(rnd() * 3); for (let k = 0; k < n; k++) a += cel(x + k * 9, y + (k % 2) * 4, 4, 3.2, rnd() * 60); }
+    a += '</g>';
+    let b = `<g clip-path="url(#tc1)"><rect x="110" y="0" width="140" height="140" fill="#f3e3a0"/>`;
+    for (let i = 0; i < 16; i++) { let d = `M${110 + rnd() * 140},${10 + rnd() * 130}`; for (let k = 0; k < 5; k++) d += ` q${(rnd() - 0.5) * 30},${(rnd() - 0.5) * 30} ${(rnd() - 0.5) * 40},${(rnd() - 0.5) * 40}`; b += `<path d="${d}" fill="none" stroke="#7a3f8f" stroke-width="1.5"/>`; }
+    for (let i = 0; i < 7; i++) b += cel(140 + (i % 3) * 30 + rnd() * 6, 40 + Math.floor(i / 3) * 30 + rnd() * 6, 4.6, 3.6, rnd() * 90);
+    b += '</g>';
+    let c = `<g clip-path="url(#tc2)"><rect x="240" y="0" width="120" height="140" fill="#f4c6d0"/>`;
+    for (let y = 22; y < 130; y += 12) c += `<path d="${Array.from({ length: 30 }, (_, i) => (i ? 'L' : 'M') + (240 + i * 4.4).toFixed(1) + ',' + (y + 2.4 * Math.sin(i * 0.7 + y)).toFixed(1)).join(' ')}" fill="none" stroke="#d76a86" stroke-width="5"/>`;
+    for (let y = 28; y < 125; y += 24) for (let x = 262; x < 340; x += 13) c += cel(x, y, 3.4, 2.4);
+    c += '</g>';
+    s += a + b + c + [62, 180, 298].map(x => `<circle cx="${x}" cy="72" r="54" fill="none" stroke="#263153" stroke-width="3"/>`).join('');
+    s += tx(62, 146, 'Hialina', { c: '#8fd3ff', w: 800, fs: 12 }) + tx(180, 146, 'Elástica', { c: '#ffe066', w: 800, fs: 12 }) + tx(298, 146, 'Fibrocartilagem', { c: '#c9a7ff', w: 800, fs: 12 });
+    s += tx(62, 160, 'matriz lisa', { c: '#7f8db0', fs: 9.5 }) + tx(180, 160, 'rede de fibras elásticas', { c: '#7f8db0', fs: 9.5 }) + tx(298, 160, 'feixes de colágeno tipo I', { c: '#7f8db0', fs: 9.5 });
+    return SVGT(168, s, 'Os condrócitos (pontos azuis) ficam em lacunas, sozinhos ou em pequenos grupos.');
+  },
+  zonas() {
+    const x0 = 30, x1 = 210; let s = `<rect x="${x0}" y="18" width="${x1 - x0}" height="138" fill="#bfdcf7"/>`;
+    s += `<rect x="${x0}" y="156" width="${x1 - x0}" height="20" fill="#8fa3c4"/><rect x="${x0}" y="176" width="${x1 - x0}" height="40" fill="#e9e2d2"/>`;
+    for (let i = 0; i < 9; i++) s += `<circle cx="${x0 + 12 + i * 20}" cy="${190 + (i % 2) * 12}" r="${4 + (i % 3)}" fill="#c9bea6"/>`;
+    for (let x = x0 + 10; x < x1; x += 18) s += `<path d="M${x},176 L${x},96 Q${x},40 ${x + 26},24" fill="none" stroke="#5f86c2" stroke-width="1.4" opacity=".8"/>`;
+    s += `<line x1="${x0}" y1="156" x2="${x1}" y2="156" stroke="#2fd3c6" stroke-width="2" stroke-dasharray="4 3"/>`;
+    for (let x = x0 + 8; x < x1; x += 16) s += `<ellipse cx="${x}" cy="26" rx="5" ry="1.8" fill="#3b4f8f"/>`;
+    for (let i = 0; i < 10; i++) s += `<circle cx="${x0 + 14 + i * 17}" cy="${58 + (i % 2) * 14}" r="3.4" fill="#3b4f8f"/>`;
+    for (let x = x0 + 16; x < x1; x += 28) for (let y = 104; y < 150; y += 10) s += `<ellipse cx="${x}" cy="${y}" rx="2.8" ry="3.6" fill="#3b4f8f"/>`;
+    const L = (y, t, sub, c) => `<line x1="${x1 + 4}" y1="${y}" x2="${x1 + 16}" y2="${y}" stroke="${c}" stroke-width="1.4"/>` + tx(x1 + 20, y + 3.5, t, { a: 'start', c, w: 700, fs: 10.5 }) + (sub ? tx(x1 + 20, y + 15, sub, { a: 'start', c: '#7f8db0', fs: 9.5, w: 500 }) : '');
+    s += L(26, 'Superficial', 'fibras paralelas', '#f2f4fa') + L(64, 'Média', 'fibras oblíquas', '#f2f4fa') + L(120, 'Profunda', 'células em colunas', '#f2f4fa') + L(156, 'Linha de maré', '', '#2fd3c6') + L(167, 'Calcificada', '', '#8fa3c4') + L(196, 'Osso subcondral', '', '#e9e2d2');
+    s += tx(120, 12, 'líquido sinovial', { c: '#4dabf7', fs: 10 });
+    return SVGT(222, s, 'As linhas azuis mostram a direção das fibras de colágeno, que formam arcos da base até a superfície.');
+  },
+  esponja() {
+    const bloco = (x, h, sai) => {
+      let s = `<rect x="${x}" y="${150 - h}" width="120" height="${h}" rx="8" fill="#8fd3ff"/>`;
+      for (let i = 0; i < 8; i++) s += `<circle cx="${x + 15 + (i % 4) * 30}" cy="${150 - h + 14 + Math.floor(i / 4) * (h - 28)}" r="3.2" fill="#3b4f8f"/>`;
+      for (let i = 0; i < 3; i++) { const y = 150 - h * 0.25 - i * h * 0.25; s += sai ? seta(x - 2, y, x - 26, y, '#4dabf7') + seta(x + 122, y, x + 146, y, '#4dabf7') : seta(x - 28, y, x - 4, y, '#63e6be') + seta(x + 148, y, x + 124, y, '#63e6be'); }
+      return s;
+    };
+    let s = `<rect x="40" y="150" width="280" height="10" rx="4" fill="#e9e2d2"/>` + bloco(48, 56, true) + bloco(196, 80, false);
+    s += seta(108, 40, 108, 84, '#ff8a3d') + seta(256, 60, 256, 30, '#94d82d');
+    s += tx(108, 30, 'carga: a água sai', { c: '#ff8a3d', w: 700 }) + tx(256, 20, 'alívio: o líquido volta', { c: '#94d82d', w: 700 }) + tx(256, 176, 'com oxigênio e nutrientes', { c: '#63e6be', fs: 10 }) + tx(108, 176, 'e leva resíduos', { c: '#4dabf7', fs: 10 });
+    return SVGT(184, s, 'A cartilagem funciona como uma esponja: o movimento é a bomba que a alimenta.');
+  },
+  camadas() {
+    const cx = 104, cy = 112; let s = `<circle cx="${cx}" cy="${cy}" r="98" fill="#e7a98f"/><circle cx="${cx}" cy="${cy}" r="90" fill="#f7dd8a"/>`;
+    _sr = 9; for (let i = 0; i < 26; i++) { const a = rnd() * 6.28; s += `<circle cx="${(cx + 82 * Math.cos(a)).toFixed(1)}" cy="${(cy + 82 * Math.sin(a)).toFixed(1)}" r="${4 + rnd() * 2}" fill="#fbe9b4" stroke="#e8c45d" stroke-width=".8"/>`; }
+    s += `<circle cx="${cx}" cy="${cy}" r="74" fill="#dbe8f7"/><circle cx="${cx}" cy="${cy}" r="68" fill="#b23a48" stroke="#ffffff" stroke-width="2.4"/>`;
+    for (const [dx, dy, r] of [[0, 0, 20], [-34, -26, 17], [32, -28, 18], [-40, 18, 17], [36, 20, 18], [-6, -50, 13], [-4, 44, 16], [48, -2, 11], [-52, -4, 10]]) {
+      s += `<circle cx="${cx + dx}" cy="${cy + dy}" r="${r}" fill="#d94d5c" stroke="#ffe3e8" stroke-width="1.6"/>`;
+      for (let k = 0; k < 7; k++) { const a = k * 0.9, rr = k ? r * 0.55 : 0; s += `<circle cx="${(cx + dx + rr * Math.cos(a)).toFixed(1)}" cy="${(cy + dy + rr * Math.sin(a)).toFixed(1)}" r="${(r * 0.2).toFixed(1)}" fill="#ef7482" stroke="#ffd0d6" stroke-width=".6"/>`; }
+    }
+    const L = (px, py, ty, t, c) => `<line x1="${px}" y1="${py}" x2="222" y2="${ty}" stroke="${c}" stroke-width="1.1"/><circle cx="${px}" cy="${py}" r="2.2" fill="${c}"/>` + t.split('|').map((l, i) => tx(226, ty + 3.5 + i * 12, l, { a: 'start', c, w: i ? 500 : 700, fs: i ? 9.5 : 10.5 })).join('');
+    s += L(cx + 69, cy - 69, 22, 'Pele', '#e7a98f') + L(cx + 64, cy - 52, 50, 'Fáscia superficial|com gordura', '#f7dd8a') + L(cx + 71, cy - 22, 82, 'Fáscia profunda', '#dbe8f7') + L(cx + 67, cy + 6, 112, 'Epimísio', '#ffffff') + L(cx + 50, cy + 18, 142, 'Perimísio|em volta do fascículo', '#ffe3e8') + L(cx + 36 + 4, cy + 20 + 3, 172, 'Endomísio|em volta de cada fibra', '#ffd0d6');
+    return SVGT(222, s, 'Corte de um músculo do braço ou da perna, da pele para dentro.');
+  },
+  desliza() {
+    let s = ''; const folha = (y, ang, c) => { let f = `<rect x="20" y="${y}" width="320" height="26" rx="6" fill="${c}"/>`; for (let x = 24; x < 336; x += 9) f += `<line x1="${x}" y1="${y + 3}" x2="${x + ang}" y2="${y + 23}" stroke="#ffffff66" stroke-width="1.6"/>`; return f; };
+    s += folha(20, 10, '#9fb4d6') + `<rect x="20" y="48" width="320" height="10" fill="#63e6be88"/>` + folha(60, -10, '#b9cbe6') + `<rect x="20" y="88" width="320" height="10" fill="#63e6be88"/>` + folha(100, 10, '#9fb4d6');
+    s += seta(120, 33, 200, 33, '#ffd43b') + seta(240, 73, 160, 73, '#ffd43b') + seta(120, 113, 200, 113, '#ffd43b');
+    s += tx(180, 146, 'lâminas de colágeno com fibras em direções diferentes', { c: '#c9d2e3', fs: 10 }) + tx(342, 56, 'ácido hialurônico', { c: '#63e6be', a: 'end', fs: 10, w: 700 });
+    return SVGT(154, s, 'As camadas escorregam umas sobre as outras graças à camada lubrificante entre elas.');
+  },
+  toracolombar() {
+    let s = `<path d="M118,44 Q180,30 242,44 Q262,50 266,66 L254,128 Q248,148 246,162 L114,162 Q112,148 106,128 L94,66 Q98,50 118,44 Z" fill="#2a3557"/>`;
+    s += `<path d="M96,70 L74,150 L66,196 M264,70 L286,150 L294,196" fill="none" stroke="#33416a" stroke-width="15" stroke-linecap="round"/>`;
+    s += `<path d="M112,160 Q180,150 248,160 Q258,190 246,214 L114,214 Q102,190 112,160 Z" fill="#2f3b63"/>`;
+    s += `<path d="M126,212 L130,256 M234,212 L230,256" stroke="#33416a" stroke-width="34" stroke-linecap="round"/>`;
+    s += `<path d="M180,132 L154,156 L180,178 L206,156 Z" fill="#dbe8f7" opacity=".95"/>`;
+    s += `<path d="M262,74 Q252,104 240,124 L198,150 L180,132 Q206,96 262,74 Z" fill="#4dabf7" opacity=".92"/>`;
+    s += `<path d="M178,176 Q160,166 140,172 Q118,182 120,204 Q130,220 158,214 Q176,202 178,176 Z" fill="#ff5d73" opacity=".92"/>`;
+    s += `<path d="M268,80 Q226,150 134,232" fill="none" stroke="#ffd43b" stroke-width="2.4" stroke-dasharray="6 4"/>` + seta(144, 224, 132, 234, '#ffd43b');
+    s += tx(312, 40, 'Latíssimo do dorso', { c: '#4dabf7', w: 700, a: 'end' }) + tx(312, 52, '(direito)', { c: '#4dabf7', a: 'end', fs: 9.5 });
+    s += tx(56, 238, 'Glúteo máximo', { c: '#ff5d73', w: 700 }) + tx(56, 250, '(esquerdo)', { c: '#ff5d73', fs: 9.5 });
+    s += tx(318, 186, 'Fáscia', { c: '#dbe8f7', w: 700, a: 'end' }) + tx(318, 198, 'toracolombar', { c: '#dbe8f7', w: 700, a: 'end' }) + `<line x1="270" y1="184" x2="206" y2="160" stroke="#dbe8f7" stroke-width="1"/>`;
+    s += tx(180, 20, 'vista de trás', { c: '#7f8db0', fs: 10 });
+    return SVGT(262, s, 'A diagonal amarela é a cadeia oblíqua posterior: braço de um lado, perna do outro.');
+  },
+  molinete() {
+    let s = `<path d="M40,150 Q30,118 60,104 L110,98 Q170,58 240,96 L282,114 Q300,120 300,134 L300,150 Z" fill="#e9e2d2"/>`;
+    s += `<circle cx="296" cy="134" r="13" fill="#d8ccb2"/><path d="M300,128 L332,100 L340,108 L310,138 Z" fill="#e9e2d2"/>`;
+    s += `<path d="M52,154 Q170,166 290,148 Q306,146 312,138 L336,112" fill="none" stroke="#dbe8f7" stroke-width="7" stroke-linecap="round"/>`;
+    s += seta(318, 150, 344, 120, '#ffd43b') + seta(170, 74, 170, 46, '#94d82d');
+    s += tx(170, 36, 'o arco sobe', { c: '#94d82d', w: 700 }) + tx(340, 160, 'dedos estendem', { c: '#ffd43b', w: 700, a: 'end', fs: 10 });
+    s += tx(54, 176, 'calcâneo', { c: '#e9e2d2', fs: 10 }) + tx(286, 176, 'cabeça do metatarso', { c: '#e9e2d2', fs: 10 }) + tx(170, 184, 'aponeurose plantar fica tensa', { c: '#dbe8f7', w: 700 });
+    return SVGT(192, s, 'Mecanismo de molinete (Hicks): estender os dedos tensiona a aponeurose e transforma o pé numa alavanca firme.');
+  },
+};
+
+// ---- painel ----
+async function mostrarTecidos(tema = TEC.tema) {
+  document.querySelectorAll('#regioes .chip').forEach(b => b.classList.toggle('on', b.dataset.r === 'tecidos'));
+  if (MOV.on) sairMov(false); if (AG.on) sairAg(false);
+  if (!TEC.txt) {
+    try { TEC.txt = await (window.__conteudo ? window.__conteudo('tecidos.json') : Promise.reject(new Error('sem acesso'))); }
+    catch (e) { console.error(e); toast('Não foi possível carregar este conteúdo. Verifique a conexão.'); return; }
+  }
+  TEC.tema = ITENS_TEC[tema] ? tema : 'tendoes';
+  const T = TEC.txt[TEC.tema], cor = COR_TEC[TEC.tema];
+  const comp = c => `<div class="tcomp">${c.map(([n, v, k, d]) => `<div><div class="agm-t"><span><i style="background:${k}"></i>${esc(n)}</span></div><div class="agm-b"><i style="width:${Math.max(3, v)}%;background:${k}"></i></div><small>${esc(d)}</small></div>`).join('')}</div>`;
+  const sec = s => `<h3>${esc(s.t)}</h3>${s.fig && FIG_T[s.fig] ? FIG_T[s.fig]() : ''}${s.comp ? comp(s.comp) : ''}${s.p ? `<p>${s.p}</p>` : ''}${s.lista ? `<ul>${s.lista.map(x => `<li>${x}</li>`).join('')}</ul>` : ''}`;
+  painelP('Tecidos', `<span class="tag" style="background:${cor}22;color:${cor}">tecido conjuntivo</span>tendões, cartilagens e fáscias`, `
+    <div class="seg" id="tecTema">${Object.entries(TEC.txt).map(([k, t]) => `<button data-tema="${k}" class="${k === TEC.tema ? 'on' : ''}">${esc(t.nome)}</button>`).join('')}</div>
+    <p style="margin-top:10px">${T.resumo}</p>
+    <h3>Onde fica no corpo</h3>
+    <div class="lista" id="tecLista">${ITENS_TEC[TEC.tema].map(d => `<button data-i="${d.id}"><i style="background:${TEC.tema === 'cartilagens' ? COR_TIPO[d.tipo] : cor}"></i><span class="lnome">${esc((T.itens[d.id] || {}).nome || d.id)}</span></button>`).join('')}</div>
+    <div id="tecItem"></div>
+    ${T.secoes.map(sec).join('')}
+    <div class="aviso">Material educativo. Os valores de composição e de deformação são aproximados e variam entre estruturas, idades e pessoas.</div>
+    <div class="fontes">Fontes: ${T.fontes.map(esc).join(' · ')} · Modelo 3D: Z-Anatomy (CC BY-SA 4.0).</div>`);
+  $('pB').onclick = ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.tema) { if (b.dataset.tema !== TEC.tema) mostrarTecidos(b.dataset.tema); return; }
+    if (b.dataset.i) { tecItem(b.dataset.i); if (CEL()) $('tecItem').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
+    if (b.dataset.j) { tecItem('articular', b.dataset.j); return; }
+    if (b.dataset.ficha) { const n = b.dataset.ficha; sairTecidos(); abrir(n); }
+  };
+  const primeiro = ITENS_TEC[TEC.tema].some(d => d.id === TEC.item) ? TEC.item : ITENS_TEC[TEC.tema][0].id;
+  await tecItem(primeiro);
+}
+function sairTecidos() {
+  if (!TEC.on) return; TEC.on = false; tecRestaurar(); if (TEC.g) TEC.g.visible = false;
+  if (!TEC.trocando && TEC.cam0) {   // saindo da área: as camadas voltam a ser as de antes
+    for (const [c, v] of Object.entries(TEC.cam0)) { visCamada[c] = v; document.querySelector(`[data-c=${c}]`)?.classList.toggle('on', v); }
+    TEC.cam0 = null; isolado = null;
+  }
+}
+
 /* ---------- versão celular: abas embaixo, folha que arrasta e ferramentas na lateral ---------- */
 const TAB_DE = r => /^(ombro|cotovelo|joelho)$/.test(r) ? 'regioes' : r || 'corpo';
 function marcarTab() {
@@ -2645,7 +3007,7 @@ function abaRegioes() {
   painelP('Regiões', '<span class="tag">atlas</span>estudo por articulação', `
     <p>Cada região isola os músculos daquela articulação e traz as fichas, os ligamentos, o movimento com ângulo e torque e as amplitudes seguras.</p>
     <div class="lista">${Object.entries(DADOS.regioes).map(([k, R]) => `<button data-r="${k}"><i></i><span class="lnome">${esc(R.nome)}</span><span class="pl sagital">abrir</span></button>`).join('')}</div>
-    <h3>Também</h3><div class="lista"><button data-t="movimento"><i style="background:var(--ac)"></i><span class="lnome">Movimento: todas as articulações, exercícios, modo livre e marcha</span></button><button data-t="postura"><i style="background:#ff6b8b"></i><span class="lnome">Postura: desvios, cadeias, fio de prumo e ângulo Q</span></button></div>`);
+    <h3>Também</h3><div class="lista"><button data-t="tecidos"><i style="background:#f2c879"></i><span class="lnome">Tecidos: tendões, cartilagens e fáscias</span></button><button data-t="movimento"><i style="background:var(--ac)"></i><span class="lnome">Movimento: todas as articulações, exercícios, modo livre e marcha</span></button><button data-t="postura"><i style="background:#ff6b8b"></i><span class="lnome">Postura: desvios, cadeias, fio de prumo e ângulo Q</span></button></div>`);
   $('tabbar').dataset.fixa = 'regioes'; marcarTab();
 // placeholder curto no celular e corpo inteiro enquadrado acima das abas
 const ajustarCel = () => { $('q').placeholder = CEL() ? 'Buscar…' : 'Buscar osso ou músculo'; if (CEL() && !painelAberto) enquadrarP('corpo', 'ant'); };
@@ -2744,4 +3106,4 @@ setTimeout(() => POSE.pele(), 1200);
 // link direto para o simulador: ?sim=agachamento ou ?sim=remada
 { const q = new URLSearchParams(location.search).get('sim'); if (q !== null) setTimeout(() => mostrarSim(EX_S[q] ? q : 'agachamento'), 400); }
 aplicarVis();
-window.__cm = { SIM, EX_S, BRACOS_S, mostrarSim, defLivre, simDef, simMedir, simTabela, MESH, E, abrir, mostrarCreditos, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };
+window.__cm = { scene, TEC, mostrarTecidos, tecItem, SIM, EX_S, BRACOS_S, mostrarSim, defLivre, simDef, simMedir, simTabela, MESH, E, abrir, mostrarCreditos, mostrarLivre, mostrarMarcha, LV, irPreset, mudarL, PRESETS_L, get iso() { return isolado; }, regiao, MOV, setAng: a => { MOV.ang = a; movAplicar(); }, entrarMov, padrao, cam, ctl, THREE, AG, entrarAg, POSE, PE: typeof PE !== 'undefined' ? PE : null, mostrarMov, mostrarArt, listaMov, mostrarDesvio, mostrarFerramenta, listaPostura, setK: k => { AG.k = k; agAplicar(); } };

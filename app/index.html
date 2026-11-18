@@ -81,6 +81,12 @@ body.tirar #c{cursor:crosshair}
 .pctl input[type=range]{width:100%;accent-color:var(--ac);margin:8px 0 2px}
 .pq{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px}.pq div{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:8px 10px}.pq small{display:block;font-size:11px;color:var(--ink3);line-height:1.3}.pq b{font-size:22px;color:#ffd43b;font-variant-numeric:tabular-nums}
 .pnota{font-size:12.5px!important;color:var(--ink3)!important}
+.tfig{margin:10px 0 6px;padding:10px 8px 8px;border-radius:14px;background:#0d1426;border:1px solid var(--line)}.tfig svg{display:block;width:100%;height:auto}
+.tfig figcaption{font-size:12px;color:var(--ink3);margin-top:6px;line-height:1.4;padding:0 4px}
+.tcomp{display:grid;gap:8px;margin:8px 0}.tcomp small{display:block;font-size:12px;color:var(--ink3);margin-top:2px}
+.tecard{margin:10px 0 4px;padding:12px 14px;border-radius:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--k) 14%,transparent),transparent);border:1px solid color-mix(in srgb,var(--k) 45%,transparent)}
+.tecard small{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--k);font-weight:700}.tecard b{display:block;font-size:16px;margin:2px 0 4px}.tecard p{margin:0;font-size:14px}
+.tecard .seg{margin-top:10px}#tecLista button.on{background:#ffffff0d;border-radius:8px}#tecLista button.on .lnome{color:var(--ink);font-weight:700}
 #pB .simcard{display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:16px;border:1px solid #ffb93855;background:linear-gradient(135deg,#ffb9381c,#2fd3c612);color:var(--ink)}
 #pB .simcard b{display:flex;align-items:center;gap:8px;font-size:15px}#pB .simcard b span{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#1a1203;background:var(--ac);border-radius:999px;padding:2px 8px}
 #pB .simcard small{display:block;margin-top:4px;font-size:12.5px;color:var(--ink2);line-height:1.4}
@@ -234,6 +240,7 @@ html.laser #laser{display:block}html.laser #c{cursor:none}
     <button class="chip" data-r="joelho">Joelho</button>
     <button class="chip" data-r="movimento">Movimento</button>
     <button class="chip" data-r="postura">Postura</button>
+    <button class="chip" data-r="tecidos">Tecidos</button>
   </nav>
   <div class="busca"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Buscar osso ou músculo" autocomplete="off"><div class="sug" id="sug"></div></div>
@@ -310,7 +317,7 @@ document.getElementById('bVersao').addEventListener('click',abrirVersao);
 if(!window.__versaoSalva)abrirVersao();</script>
 <script type="module">
 /* acesso: só assinantes (ou quem o administrador liberar) carregam o atlas */
-import { usuario, temAcesso, carregarDados, sair } from '/conta/conta.js';
+import { sb, usuario, temAcesso, carregarDados, sair } from '/conta/conta.js';
 const voltar = () => location.replace('/entrar/?volta=' + encodeURIComponent(location.pathname + location.search));
 try {
   const u = await usuario();
@@ -318,6 +325,8 @@ try {
   else if (!(await temAcesso())) location.replace('/entrar/?sem=1');
   else {
     window.__DADOS = await carregarDados();
+    // outros arquivos do cofre (por exemplo, tecidos.json), carregados só quando a pessoa abre aquela parte
+    window.__conteudo = async nome => { const { data, error } = await sb.storage.from('conteudo').download(nome); if (error) throw error; return JSON.parse(await data.text()); };
     // botão da conta no topo
     const b = document.createElement('button'); b.className = 'vbtn'; b.id = 'bConta'; b.type = 'button';
     b.title = 'Minha conta (' + u.email + ')'; b.setAttribute('aria-label', 'Minha conta');
