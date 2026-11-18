@@ -177,8 +177,25 @@ h2.d{font-size:clamp(34px,6.4vw,58px);margin:18px 0 14px}
 .eco{display:inline-block;margin-left:6px;font-weight:800;font-size:12.5px;padding:3px 9px;border-radius:999px;background:#2fd3c61f;color:var(--ci)}
 .pl.top .eco{background:#ffb93824;color:var(--au)}
 .dia{display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:700;font-size:14px;color:var(--au)}
-.anual{order:-1}
-@media(min-width:960px){.planos{grid-template-columns:1fr 1.08fr 1fr}.anual{order:0}.pl.top{transform:translateY(-14px)}}
+.pl.ini{border-color:#2fd3c677;box-shadow:0 0 0 5px #2fd3c60f,0 24px 60px #0008}
+.pl.ini .selo{background:#2fd3c6;color:#04201d;border:0}
+.dia.ci{color:var(--ci)}
+.up{display:block;margin-top:12px;font-size:14px;color:var(--ink2);text-align:center;line-height:1.4}
+.up b{color:var(--au);white-space:nowrap}
+.up:after{content:"↓";display:inline-block;margin-left:6px;font-weight:800;color:var(--au);animation:desce 1.6s ease-in-out infinite}
+@keyframes desce{50%{transform:translateY(3px)}}
+.escada{display:flex;align-items:stretch;justify-content:center;gap:6px;margin:30px auto 0;max-width:620px}
+.escada div{flex:1;text-align:center;padding:12px 6px;border-radius:16px;background:#141b31a8;border:1.5px solid var(--line);position:relative}
+.escada div.au{border-color:var(--au);background:#ffb93814}
+.escada small{display:block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
+.escada b{display:block;white-space:nowrap;font-family:var(--fd);font-weight:800;font-size:clamp(19px,5.6vw,26px);letter-spacing:-.03em;margin-top:2px}.escada div.au b{color:var(--au)}
+.escada span{font-size:13px;color:var(--ink2);font-weight:600}
+.escada em{position:absolute;top:-10px;right:-4px;font-style:normal;font-weight:800;font-size:11.5px;padding:3px 7px;border-radius:999px;background:var(--ci);color:#04201d}
+.escada div.au em{background:var(--au);color:#1a1203}
+.escada i{flex:none;align-self:center;width:14px;height:14px;border-top:2.5px solid var(--ink3);border-right:2.5px solid var(--ink3);transform:rotate(45deg);margin:0 2px}
+.escada-t{margin-top:12px;color:var(--ink2);font-size:15.5px}.escada-t b{color:var(--ink)}
+@media(min-width:960px){.planos{grid-template-columns:1fr 1fr 1.08fr}.pl.top{transform:translateY(-14px)}.up:after{content:"→";animation-name:vai}}
+@keyframes vai{50%{transform:translateX(3px)}}
 .pgar{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 22px;margin-top:26px;color:var(--ink3);font-size:14.5px;font-weight:600}
 .pgar span{display:inline-flex;align-items:center;gap:7px}.pgar svg{color:var(--ci)}
 
@@ -425,31 +442,41 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
 <section id="planos"><div class="wrap">
  <div class="center rv"><span class="kick au"><i></i>Planos</span>
  <h2 class="d">Acesso a <em>tudo.</em> Você só escolhe por quanto tempo.</h2>
- <p class="lead">Todos os planos liberam o app completo e todas as novidades que entrarem enquanto sua assinatura estiver ativa.</p></div>
+ <p class="lead">Comece pelo mensal, por <b>R$ 15</b>. Todos os planos liberam o app completo e todas as novidades que entrarem enquanto sua assinatura estiver ativa.</p></div>
+ <div class="escada rv">
+  <div><small>Mensal</small><b>R$ 15</b><span>/mês</span></div><i aria-hidden="true"></i>
+  <div><small>Semestral</small><b>R$ 10</b><span>/mês</span><em>−33%</em></div><i aria-hidden="true"></i>
+  <div class="au"><small>Anual</small><b>R$ 8,33</b><span>/mês</span><em>−44%</em></div>
+ </div>
+ <p class="rv center escada-t">Quanto mais tempo você escolhe, <b>menos paga por mês.</b></p>
  <div class="planos">
-  <div class="pl rv">
-   <div class="nm">Mensal</div><div class="ds">Para começar agora</div>
+  <div class="pl ini rv">
+   <span class="selo">Comece por aqui</span>
+   <div class="nm">Mensal</div><div class="ds">Para começar agora, sem compromisso</div>
    <div class="pr"><span class="rs">R$</span><span class="v">15</span><span class="per">/mês</span></div>
    <div class="eq">Cobrado todo mês.<br>Cancele quando quiser.</div>
+   <div class="dia ci"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>R$ 0,50 por dia</div>
    <ul class="ft"></ul>
-   <a class="btn sec" href="#" data-plano="mensal">Assinar o mensal</a>
+   <a class="btn pri" href="#" data-plano="mensal">Assinar por R$ 15/mês</a>
+   <a class="up" href="#pl-sem">Quer pagar menos? <b>No semestral sai R$ 10/mês</b></a>
   </div>
-  <div class="pl top anual rv">
-   <span class="selo">Melhor valor</span>
-   <div class="nm">Anual <span class="eco">economize R$ 80</span></div><div class="ds">O ano inteiro de faculdade e de prática</div>
-   <div class="pr"><span class="rs">R$</span><span class="v">100</span><span class="per">/ano</span></div>
-   <div class="eq">Equivale a <b>R$ 8,33/mês</b><br><s>R$ 180</s> pagando mês a mês</div>
-   <div class="dia"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Menos de R$ 0,28 por dia</div>
-   <ul class="ft"></ul>
-   <a class="btn pri pulse" href="#" data-plano="anual">Quero o plano anual</a>
-  </div>
-  <div class="pl rv">
+  <div class="pl rv" id="pl-sem">
    <span class="selo">Economize R$ 30</span>
    <div class="nm">Semestral</div><div class="ds">Um semestre completo</div>
    <div class="pr"><span class="rs">R$</span><span class="v">60</span><span class="per">/6 meses</span></div>
    <div class="eq">Equivale a <b>R$ 10/mês</b><br><s>R$ 90</s> pagando mês a mês</div>
    <ul class="ft"></ul>
    <a class="btn sec" href="#" data-plano="semestral">Assinar o semestral</a>
+   <a class="up" href="#pl-anual">E fica ainda melhor: <b>no anual sai R$ 8,33/mês</b></a>
+  </div>
+  <div class="pl top rv" id="pl-anual">
+   <span class="selo">Melhor oferta</span>
+   <div class="nm">Anual <span class="eco">economize R$ 80</span></div><div class="ds">O ano inteiro de faculdade e de prática</div>
+   <div class="pr"><span class="rs">R$</span><span class="v">100</span><span class="per">/ano</span></div>
+   <div class="eq">Equivale a <b>R$ 8,33/mês</b><br><s>R$ 180</s> pagando mês a mês</div>
+   <div class="dia"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Menos de R$ 0,28 por dia</div>
+   <ul class="ft"></ul>
+   <a class="btn pri pulse" href="#" data-plano="anual">Quero o plano anual</a>
   </div>
  </div>
  <p class="rv center" style="margin-top:26px;color:var(--ink2);font-size:15.5px">Depois de pagar, crie sua conta em <a href="/entrar/" style="color:var(--au);font-weight:700">Entrar</a> usando <b style="color:var(--ink)">o mesmo e-mail do pagamento</b>. O acesso é liberado automaticamente.</p>
@@ -505,7 +532,7 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
  <div class="glow" style="width:420px;height:300px;left:50%;top:-120px;transform:translateX(-50%);background:#ffb93830"></div>
  <svg width="86" height="86" style="margin:0 auto 10px;position:relative"><use href="#simb"/></svg>
  <h2 class="d" style="position:relative">Seu próximo estudo de anatomia<br>pode ser <em>em 3D.</em></h2>
- <p class="lead" style="margin:0 auto;position:relative">Acesso a tudo a partir de <b>R$ 8,33 por mês</b>, com 7 dias de garantia.</p>
+ <p class="lead" style="margin:0 auto;position:relative">Acesso a tudo por <b>R$ 15 por mês</b>, ou ainda menos nos planos mais longos, com 7 dias de garantia.</p>
  <div class="ctas" style="justify-content:center;position:relative"><a class="btn pri pulse" href="#planos">Escolher meu plano</a></div>
 </div></div></section>
 </main>
@@ -516,7 +543,7 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
  <p>Modelos 3D: <a href="https://www.z-anatomy.com/" target="_blank" rel="noopener" style="text-decoration:underline">Z-Anatomy</a> (CC BY-SA 4.0), derivados do BodyParts3D (DBCLS). Textos, fichas e design: © 2026 Cinesiomecânica.</p>
 </div></footer>
 
-<div class="fixa" id="fixa"><div><small>Plano anual · acesso a tudo</small><b><em>R$ 8,33</em>/mês</b></div><a class="btn pri sm" href="#planos">Ver planos</a></div>
+<div class="fixa" id="fixa"><div><small>Acesso a tudo · cancele quando quiser</small><b><em>R$ 15</em>/mês</b></div><a class="btn pri sm" href="#planos">Assinar</a></div>
 
 <script>
 // lista de recursos igual em todos os planos
