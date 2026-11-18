@@ -42,6 +42,10 @@ function areaLivre() {
     return { x0: 0, x1: W - 58, y0: topo, y1: H - tab - folha - 8 };
   }
   if (W < 900) return { x0: 0, x1: W, y0: 140, y1: H * 0.5 - 66 };
+  if (document.documentElement.classList.contains('aula')) {   // modo aula: painel maior; sem painel, o modelo usa a tela toda
+    const p = $('painel'), pw = p && p.classList.contains('on') ? p.getBoundingClientRect().width + 32 : 24;
+    return { x0: 0, x1: W - pw, y0: 96, y1: H - 84 };
+  }
   return { x0: 0, x1: W - 430, y0: 64, y1: H - 64 };
 }
 addEventListener('versao', () => { ajustarPixels(); resize(); sujar(); });
@@ -116,6 +120,13 @@ function voar(alvo, dist, dir = new THREE.Vector3(0.35, 0.12, 1), comPainel = tr
   if (comPainel && (CEL() || innerWidth < 900)) {   // no celular o painel cobre a parte de baixo: sobe o objeto na tela
     const A = areaLivre(); dist *= Math.min(2.6, Math.max(1, 0.72 * innerHeight / (A.y1 - A.y0)));   // a área livre é menor: afasta a câmera para caber
     t.y += ((A.y0 + A.y1) / 2 - innerHeight / 2) * 2 * dist * Math.tan(cam.fov * Math.PI / 360) / innerHeight;
+  } else if (comPainel && document.documentElement.classList.contains('aula')) {
+    // modo aula no computador: o painel (500 px) cobre a direita, então afasta um pouco e leva o objeto para a área livre
+    const W = innerWidth, H = innerHeight, livre = W - 532;
+    dist *= Math.min(1.6, Math.max(1, 0.85 * W / livre));
+    const wpp = 2 * dist * Math.tan(cam.fov * Math.PI / 360) / H, dx = livre / 2 - W / 2;
+    const f = dir.clone().normalize().negate(), r = new THREE.Vector3().crossVectors(f, new THREE.Vector3(0, 1, 0)).normalize();
+    t.addScaledVector(r, -dx * wpp);
   }
   const p = t.clone().add(dir.clone().normalize().multiplyScalar(dist));
   anim.de = { t: ctl.target.clone(), p: cam.position.clone() }; anim.ate = { t, p }; anim.t = 0; anim.t0 = performance.now();
