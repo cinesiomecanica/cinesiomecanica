@@ -61,7 +61,7 @@ input:focus{border-color:var(--au)}
 
  <!-- nova senha (link do e-mail) -->
  <section class="vista" id="vNova">
-  <h1>Crie uma <em>nova senha</em></h1>
+  <h1 id="titNova">Crie uma <em>nova senha</em></h1>
   <form id="fNova" novalidate><label for="nova1">Nova senha</label><input id="nova1" type="password" autocomplete="new-password" minlength="6"><label for="nova2">Repita a nova senha</label><input id="nova2" type="password" autocomplete="new-password" minlength="6"><button class="btn" type="submit">Salvar nova senha</button></form>
   <div class="msg" id="msgNova"></div>
  </section>
@@ -100,7 +100,8 @@ const ERROS = {
   'Invalid login credentials': 'E-mail ou senha incorretos.',
   'User already registered': 'Este e-mail já tem conta. Use a aba Entrar.',
   'Email not confirmed': 'Confirme o seu e-mail pelo link que enviamos antes de entrar.',
-  'Password should be at least 6 characters.': 'A senha precisa ter pelo menos 6 caracteres.'
+  'Password should be at least 6 characters.': 'A senha precisa ter pelo menos 6 caracteres.',
+  'Auth session missing!': 'Este link expirou. Na tela de entrar, digite seu e-mail e toque em "Esqueci minha senha" para receber outro.'
 };
 const traduz = m => ERROS[m] || m || 'Algo deu errado. Tente de novo.';
 
@@ -164,6 +165,7 @@ $('bRecheck').onclick = depoisDoLogin;
 for (const id of ['bSair1', 'bSair2']) $(id).onclick = async () => { await sb.auth.signOut(); trocaAba('entrar'); ver('vLogin'); };
 
 sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') ver('vNova'); });
+if (/type=invite/.test(location.hash)) { $('titNova').innerHTML = 'Bem-vindo! Crie sua <em>senha</em>'; }
 if (P.get('nova') === '1') ver('vNova');
 else {
   await depoisDoLogin();

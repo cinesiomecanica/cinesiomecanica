@@ -130,7 +130,9 @@ function desenha() {
                          : sb.from('assinantes').delete().eq('email', r.email);
       const { error } = await q; if (error) return msg(error.message, 'er'); msg(ativo(r) ? 'Acesso bloqueado.' : 'Removido da lista.', 'ok'); carregar();
     });
-    tr.children[4].append(ed, bl); tb.appendChild(tr);
+    const cv = Object.assign(document.createElement('button'), { className: 'btn sec pe', textContent: 'Convite', title: 'Reenviar o e-mail de convite', type: 'button', style: 'margin-left:6px' });
+    cv.onclick = async () => { cv.disabled = true; msg('Enviando o convite para ' + r.email + '…', 'ok'); msg(await convidar(r.email, r.valido_ate), 'ok'); cv.disabled = false; };
+    tr.children[4].append(ed, cv, bl); tb.appendChild(tr);
   }
 }
 // confirmação no próprio botão (sem janelas do navegador)
@@ -146,7 +148,16 @@ async function salvar() {
   const fim = new Date(ate + 'T23:59:59-03:00').toISOString();
   const { error } = await sb.from('assinantes').upsert({ email, plano: $('fPlano').value, valido_ate: fim, origem: 'manual', obs: $('fObs').value.trim() || null, atualizado_em: new Date().toISOString() }, { onConflict: 'email' });
   if (error) return msg(error.message, 'er');
-  msg('Acesso salvo para ' + email + ' até ' + fmt(fim) + '. A pessoa já pode criar a conta ou entrar com esse e-mail.', 'ok'); limpar(false); carregar();
+  msg('Acesso salvo para ' + email + ' até ' + fmt(fim) + '. Enviando o e-mail…', 'ok'); limpar(false); carregar();
+  msg(await convidar(email, fim), 'ok');
+}
+// e-mail de boas-vindas: convite para criar a senha (ou aviso de que já tem conta)
+async function convidar(email, fim) {
+  const ate = fim ? ' até ' + fmt(fim) : '';
+  const { data, error } = await sb.functions.invoke('convidar', { body: { email } });
+  if (error || !data?.ok) return 'Acesso salvo para ' + email + ate + ', mas o e-mail não saiu (' + (data?.erro || error?.message || 'erro') + '). Peça para a pessoa criar a conta em cinesiomecanica.com.br/entrar com esse e-mail.';
+  if (data.status === 'ja_tem_conta') return 'Acesso salvo para ' + email + ate + '. Essa pessoa já tem conta: é só entrar em cinesiomecanica.com.br/entrar.';
+  return 'Acesso salvo para ' + email + ate + '. Enviamos um convite para o e-mail dela criar a senha (pode levar alguns minutos e cair no spam).';
 }
 function limpar(apaga = true) { $('fEmail').value = ''; $('fObs').value = ''; $('fPlano').value = 'mensal'; $('fAte').value = somaMeses(new Date(), 1); $('tForm').textContent = 'Liberar acesso'; if (apaga) msg(''); }
 function msg(t, tipo = '') { const m = $('msg'); if (m) { m.className = 'msg ' + tipo; m.textContent = t; } }
