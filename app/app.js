@@ -819,8 +819,8 @@ function* pesosGen(d) {
   const chave = (a, b, c) => (a + 512) | ((b + 512) << 10) | ((c + 512) << 20);
   for (let q = 0; q < px.length; q++) { const k = chave(Math.floor(px[q] / cel), Math.floor(py[q] / cel), Math.floor(pz[q] / cel)); let a = mapa.get(k); if (!a) mapa.set(k, a = []); a.push(q); }
   // cadeias dos membros: nível de cada segmento (escápula e clavícula → úmero → antebraço; pelve → coxa → perna → pé → dedos)
-  const NIVEL = { esc: 0, cla: 0, umero: 1, ulna: 2, radio: 2, mao: 3, coxa: 1, perna: 2, pe: 3, dedos: 4 };
-  const info = ['campo', ...segs].map(n => { if (n === 'pelve') return { t: 'membro', c: '*', n: 0 }; const m = /^(esc|cla|umero|ulna|radio|mao|coxa|perna|pe|dedos)([de])$/.exec(n); if (!m) return { t: 'tronco' }; return { t: 'membro', c: (/^(esc|cla|umero|ulna|radio|mao)$/.test(m[1]) ? 'b' : 'p') + m[2], n: NIVEL[m[1]] }; });
+  const NIVEL = { esc: 0, cla: 0, umero: 1, ulna: 2, radio: 2, mao: 3, fp: 4, po: 4, fm: 5, fd: 6, coxa: 1, perna: 2, pe: 3, dedos: 4 };
+  const info = ['campo', ...segs].map(n => { if (n === 'pelve') return { t: 'membro', c: '*', n: 0 }; const m = /^(esc|cla|umero|ulna|radio|mao|fp|fm|fd|po|coxa|perna|pe|dedos)([de])$/.exec(n); if (!m) return { t: 'tronco' }; return { t: 'membro', c: (/^(esc|cla|umero|ulna|radio|mao|fp|fm|fd|po)$/.test(m[1]) ? 'b' : 'p') + m[2], n: NIVEL[m[1]] }; });
   // ossos intermediários de cada articulação (1/4, 1/2 e 3/4 da rotação): evitam que o músculo "murche" quando a articulação gira muito
   const idxSeg = new Map(['campo', ...segs].map((n, i) => [n, i])), parMap = new Map();
   idxSeg.set('tord', -2); idxSeg.set('tore', -3);   // tronco (para pares tronco → úmero)
@@ -862,8 +862,36 @@ function* pesosGen(d) {
   }
   const parTronco = sb => parMap.get((idxSeg.get(/^umero/.test(['campo', ...segs][sb]) ? 'tor' + ['campo', ...segs][sb].slice(-1) : 'pelve') ?? -9) + '|' + sb);
   const suave = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const yMao = d.yMao ?? -9, dedosLivre = {}; info.forEach((f, s) => { if (f.t === 'membro' && f.c[0] === 'b' && f.n >= 3) (dedosLivre[f.c] = dedosLivre[f.c] || new Uint8Array(nseg + 1))[s] = 1; });
+  const temDedos = Object.values(dedosLivre).some(a => a.reduce((x, y) => x + y, 0) > 1);
+  // Suaviza os pesos pela superfície do músculo: vizinhos passam a seguir os ossos de forma parecida.
+  // Sem isso, cada vértice escolhe sozinho e aparecem "dentes", lascas e rasgos nas bordas e nas articulações.
+  function suavizar(n, w, ix, idx, wt, fixo, voltas = 4) {
+    const rep = new Int32Array(n), mp = new Map();
+    for (let i = 0; i < n; i++) { const k = Math.round(w[3 * i] * 2e4) + ',' + Math.round(w[3 * i + 1] * 2e4) + ',' + Math.round(w[3 * i + 2] * 2e4); const r = mp.get(k); if (r === undefined) { mp.set(k, i); rep[i] = i; } else rep[i] = r; }
+    const ini = new Int32Array(n + 1), cont = new Int32Array(n);
+    for (let t = 0; t < ix.length; t += 3) for (let e = 0; e < 3; e++) { const a = rep[ix[t + e]], b = rep[ix[t + (e + 1) % 3]]; if (a !== b) { cont[a]++; cont[b]++; } }
+    for (let i = 0; i < n; i++) ini[i + 1] = ini[i] + cont[i];
+    const viz = new Int32Array(ini[n]), pos = ini.slice(0, n);
+    for (let t = 0; t < ix.length; t += 3) for (let e = 0; e < 3; e++) { const a = rep[ix[t + e]], b = rep[ix[t + (e + 1) % 3]]; if (a !== b) { viz[pos[a]++] = b; viz[pos[b]++] = a; } }
+    let I0 = idx, W0 = wt; const bI = new Int32Array(24), bW = new Float32Array(24);
+    for (let v = 0; v < voltas; v++) {
+      const I1 = new Uint8Array(n * 4), W1 = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) {
+        if (rep[i] !== i) continue;
+        if (fixo[i] || ini[i + 1] === ini[i]) { for (let k = 0; k < 4; k++) { I1[4 * i + k] = I0[4 * i + k]; W1[4 * i + k] = W0[4 * i + k]; } continue; }
+        let m = 0; const soma = (j, f) => { for (let k = 0; k < 4; k++) { const p = W0[4 * j + k] * f; if (p <= 0) continue; const b = I0[4 * j + k]; let t = 0; for (; t < m; t++) if (bI[t] === b) { bW[t] += p; break; } if (t === m && m < 24) { bI[m] = b; bW[m++] = p; } } };
+        soma(i, 0.5); const f = 0.5 / (ini[i + 1] - ini[i]); for (let q = ini[i]; q < ini[i + 1]; q++) soma(viz[q], f);
+        let tot = 0; for (let k = 0; k < 4; k++) { let b = -1; for (let t = 0; t < m; t++) if (bW[t] > 0 && (b < 0 || bW[t] > bW[b])) b = t; if (b < 0) break; I1[4 * i + k] = bI[b]; W1[4 * i + k] = bW[b]; tot += bW[b]; bW[b] = -1; }
+        for (let k = 0; k < 4; k++) W1[4 * i + k] /= tot || 1;
+      }
+      for (let i = 0; i < n; i++) { const r = rep[i]; if (r !== i) for (let k = 0; k < 4; k++) { I1[4 * i + k] = I1[4 * r + k]; W1[4 * i + k] = W1[4 * r + k]; } }
+      I0 = I1; W0 = W1;
+    }
+    idx.set(I0); wt.set(W0);
+  }
   for (let mi = 0; mi < malhas.length; mi++) {
-    const { id, w, campo, ix } = malhas[mi], n = w.length / 3, idx = new Uint8Array(n * 4), wt = new Float32Array(n * 4), fv = new Float32Array(n).fill(-1);
+    const { id, w, campo, ix } = malhas[mi], n = w.length / 3, idx = new Uint8Array(n * 4), wt = new Float32Array(n * 4), fv = new Float32Array(n).fill(-1), fixo = new Uint8Array(n);
     // eixo mais longo do músculo e os ossos em cada ponta
     let modo = 'prox', ax = 1, lo = 0, hi = 1, sA = 0, sB = 0, ptA = [0, 0, 0], ptB = [0, 0, 0], raioB = 0.15;
     if (!campo) {
@@ -874,7 +902,9 @@ function* pesosGen(d) {
       for (let i = 0; i < n; i += passo) { const s = (w[3 * i + ax] - lo) / (hi - lo || 1), e = s < 0.12 ? 0 : s > 0.88 ? 1 : -1; if (e < 0) continue; const y = w[3 * i + 1]; fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); } const sg = maisPerto(w[3 * i], y, w[3 * i + 2]); votos[e].set(sg, (votos[e].get(sg) || 0) + 1); const pp = pont[e]; pp[0] += w[3 * i]; pp[1] += y; pp[2] += w[3 * i + 2]; pp[3]++; }
       const tip = e => { const pp = pont[e]; return [pp[0] / (pp[3] || 1), pp[1] / (pp[3] || 1), pp[2] / (pp[3] || 1)]; }; ptA = tip(0); ptB = tip(1); raioB = Math.min(0.2, Math.max(0.08, 0.45 * (hi - lo)));
       const top = m => { let b = 0, c = -1; for (const [s, v] of m) if (v > c) { c = v; b = s; } return b; };
-      sA = top(votos[0]); sB = top(votos[1]); const A = info[sA], B = info[sB];
+      sA = top(votos[0]); sB = top(votos[1]);
+      { const fz = /^(Long|Short) head of biceps brachii\.([rl])$/.exec(id); if (fz) { const l = fz[2] === 'r' ? 'd' : 'e', a = idxSeg.get('esc' + l), b = idxSeg.get('radio' + l); if (a != null && b != null) { if (ptA[1] > ptB[1]) { sA = a; sB = b; } else { sA = b; sB = a; } } } }
+      const A = info[sA], B = info[sB];
       livre.fill(0);
       const braco = f => f.t === 'membro' && f.c[0] === 'b';
       if ((A.c === '*' && braco(B)) || (B.c === '*' && braco(A))) {   // pelve → braço (grande dorsal): a pelve conta como tronco
@@ -890,7 +920,14 @@ function* pesosGen(d) {
     for (let i = 0; i < n; i++) {
       const x = w[3 * i], y = w[3 * i + 1], z = w[3 * i + 2]; nc = 0;
       fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); }
-      if (campo) campoAdd(1);
+      let dedo = false;
+      if (!campo && temDedos && y < yMao) {   // perto dos dedos: segue as falanges mais próximas (MCF → IFP → IFD), com transição pelos intermediários
+        const s0 = maisPerto(x, y, z), f0 = info[s0];
+        if (f0 && f0.t === 'membro' && f0.n >= 4 && f0.c[0] === 'b') { const sv = livre.slice(); livre.set(dedosLivre[f0.c]); prox(x, y, z, 1, true); converter(x, y, z); livre.set(sv); dedo = true; }
+        fj = 0; ff = 0; if (y >= FY[U]) { fj = U - 1; ff = 1; } else if (y > FY[0]) { while (y >= FY[fj + 1]) fj++; ff = (y - FY[fj]) / (FY[fj + 1] - FY[fj]); }
+      }
+      if (dedo) {}
+      else if (campo) campoAdd(1);
       else if (modo === 'rigido') seg1(sA, 1);
       else if (modo === 'cadeia') { prox(x, y, z, 1, true); converter(x, y, z); }
       else {
@@ -930,7 +967,7 @@ function* pesosGen(d) {
       const inI = new Uint8Array(n), Ii = [], Ai = [], dI = new Float32Array(n).fill(9);   // tendão: vértices encostados no osso de inserção
       for (let i = 0; i < n; i++) { const t = (w[3 * i + ax] - lo) / (hi - lo || 1), sv = inv ? 1 - t : t; if (sv > 0.4) dI[i] = dSeg(w[3 * i], w[3 * i + 1], w[3 * i + 2], sI); }
       for (const lim of [0.012, 0.02, 0.03]) { Ii.length = 0; for (let i = 0; i < n; i++) if (dI[i] < lim) Ii.push(i); if (Ii.length >= 8) break; }
-      for (const i of Ii) inI[i] = 1;
+      for (const i of Ii) { inI[i] = 1; fixo[i] = 1; }
       if (Ii.length >= 3 && Ii.length < n * 0.6) {
         const amostra = (a, m) => { const st = Math.max(1, Math.floor(a.length / m)), r = []; for (let k = 0; k < a.length; k += st) r.push(a[k]); return r; };
         for (let i = 0; i < n; i++) Ai.push(i);
@@ -1000,6 +1037,7 @@ function* pesosGen(d) {
         }
       }
     }
+    if (!campo && !fib && ix && modo !== 'rigido') suavizar(n, w, ix, idx, wt, fixo);   // (os leques já têm as fibras suavizadas)
     yield { id, idx, wt, fib, prog: (mi + 1) / malhas.length, diag: modo + ' ' + (['campo', ...segs][sA] || sA) + '>' + (['campo', ...segs][sB] || sB) };
   }
 }
@@ -1041,6 +1079,8 @@ const POSE = (() => {
     if (b === 'Scapula') return 'esc' + l; if (b === 'Clavicle') return 'cla' + l;
     if (b === 'Humerus') return 'umero' + l;
     if (b === 'Radius') return 'radio' + l; if (b === 'Ulna') return 'ulna' + l;
+    if (/phalanx of (second|third|fourth|fifth) finger of hand/.test(b)) return (/^Proximal/.test(b) ? 'fp' : /^Middle/.test(b) ? 'fm' : 'fd') + l;   // dedos: falanges proximais, médias e distais
+    if (/phalanx of first finger of hand/.test(b)) return 'po' + l;   // polegar
     if (SEG_RE.braco.test(b)) return 'mao' + l;
     if (/^Vertebra |^Atlas|^Axis/.test(b)) return 'v:' + b;
     if (/rib|sternum|Xiphoid|Hyoid|Thyroid|Cricoid|Arytenoid|Corniculate/.test(b)) return null;   // tronco flexível: segue a coluna pela altura
@@ -1096,6 +1136,20 @@ const POSE = (() => {
       if (seg) { m.updateWorldMatrix(true, false); S.rig.push({ m, seg, M0: m.matrixWorld.clone(), Pi: m.parent.matrixWorld.clone().invert() }); nomes.add(seg); }
       else S.campo.push(n);
     }
+    S.dedM = {};   // dedos da mão: eixo de flexão de cada fileira de articulações (MCF, IFP e IFD) e o polegar
+    for (const [l, suf] of LADOS) {
+      const base = re => { const ps = []; for (const r of S.rig) if (re.test(E[r.m.name].b) && r.seg.endsWith(l)) { const w = W(r.m.name), [, y1] = faixa(w, 1); ps.push(mediaSe(w, (x, y) => y > y1 - 0.004)); } return ps; };
+      const fila = nome => { const ps = base(new RegExp('^' + nome + ' phalanx of (second|third|fourth|fifth) finger of hand$')); if (ps.length < 2) return null;
+        const c = ps.reduce((a, p) => a.add(p), new V3()).multiplyScalar(1 / ps.length); let a = ps[0], b = ps[0]; for (const p of ps) { if (p.x < a.x) a = p; if (p.x > b.x) b = p; }
+        return { P: c, ax: b.clone().sub(a).normalize() }; };
+      const mcf = fila('Proximal'), ifp = fila('Middle'), ifd = fila('Distal'); if (!mcf || !ifp || !ifd) continue;
+      const [tb] = base(/^Proximal phalanx of first finger of hand$/), tip = (() => { for (const r of S.rig) if (/^Distal phalanx of first finger of hand$/.test(E[r.m.name].b) && r.seg.endsWith(l)) { const w = W(r.m.name), [y0] = faixa(w, 1); return mediaSe(w, (x, y) => y < y0 + 0.004); } return null; })();
+      // sinal: a flexão leva a ponta dos dedos para a palma (frente, z+, na posição anatômica)
+      const sn = ax => { const t = new V3(0, -0.05, 0).applyAxisAngle(ax, 0.3); return t.z > 0 ? 1 : -1; };
+      const D = { mcf: mcf.P, ifp: ifp.P, ifd: ifd.P, ax: mcf.ax, sn: sn(mcf.ax) };
+      if (tb && tip) { const dir = tip.clone().sub(tb).normalize(), tax = dir.clone().cross(new V3(0, 0, 1)).normalize(); const t = dir.clone().multiplyScalar(0.04).applyAxisAngle(tax, 0.3); D.pol = tb; D.tax = tax; D.tsn = (t.x - dir.x * 0.04) * (l === 'd' ? 1 : -1) > 0 ? 1 : -1; }
+      S.dedM[l] = D;
+    }
     for (const [l, suf] of LADOS) {   // articulação metatarsofalângica: base das falanges proximais, no chão
       let z0 = 1e9; for (const r of S.rig) if (r.seg === 'dedos' + l && /Proximal/.test(E[r.m.name].b)) z0 = Math.min(z0, faixa(W(r.m.name), 2)[0]);
       S.MTP[l] = new V3(S.A[l].x, S.chao + 0.012, (z0 < 1e8 ? z0 : S.A[l].z + 0.14) + 0.006);
@@ -1107,7 +1161,9 @@ const POSE = (() => {
     // articulações com ossos intermediários: [segmento de cima, segmento de baixo, pivô]
     S.pares = []; let h = 0;
     for (const [l] of LADOS) for (const [a, b, P] of [['esc', 'umero', S.Hh], ['cla', 'umero', S.Hh], ['tor', 'umero', S.Hh], ['umero', 'ulna', S.Co], ['umero', 'radio', S.Co], ['ulna', 'radio', S.Rh], ['radio', 'mao', S.Wr], ['ulna', 'mao', S.Wr],
-      ['pelve', 'coxa', S.H], ['coxa', 'perna', S.K], ['perna', 'pe', S.A], ['pe', 'dedos', S.MTP]]) {
+      ['pelve', 'coxa', S.H], ['coxa', 'perna', S.K], ['perna', 'pe', S.A], ['pe', 'dedos', S.MTP],
+      ['mao', 'fp', { d: S.dedM.d?.mcf, e: S.dedM.e?.mcf }], ['fp', 'fm', { d: S.dedM.d?.ifp, e: S.dedM.e?.ifp }], ['fm', 'fd', { d: S.dedM.d?.ifd, e: S.dedM.e?.ifd }], ['mao', 'po', { d: S.dedM.d?.pol, e: S.dedM.e?.pol }]]) {
+      if (!P[l]) continue;
       const an = a === 'pelve' ? a : a + l; if (!(b + l in idx) || (a !== 'tor' && !(an in idx))) continue;
       const cb = new V3(); let nb = 0; for (const r of S.rig) if (r.seg === b + l) { const w = W(r.m.name); cb.add(meio(w)); nb++; }
       const D = nb ? cb.multiplyScalar(1 / nb).sub(P[l]).normalize() : new V3(0, -1, 0);
@@ -1131,7 +1187,7 @@ const POSE = (() => {
     if (S.pele) return S.pele;
     preparar();
     const nomes = [...S.campo, ...Object.keys(MESH).filter(n => MESH[n].userData.camada === 'musculos')], campo = new Set(S.campo);
-    const dados = () => ({ ...S.grade, segs: S.SEGN, pares: S.pares.map(p => ({ a: p.a, b: p.b, h: p.h, P: p.P.toArray(), D: p.D.toArray() })), nseg: S.SEGN.length, FY: S.FY, malhas: nomes.map(n => ({ id: n, w: mundo(MESH[n]), campo: campo.has(n), ix: MESH[n].geometry.index ? Uint32Array.from(MESH[n].geometry.index.array) : null })) });
+    const dados = () => ({ ...S.grade, yMao: Math.max(S.Wr.d.y, S.Wr.e.y) - 0.035, segs: S.SEGN, pares: S.pares.map(p => ({ a: p.a, b: p.b, h: p.h, P: p.P.toArray(), D: p.D.toArray() })), nseg: S.SEGN.length, FY: S.FY, malhas: nomes.map(n => ({ id: n, w: mundo(MESH[n]), campo: campo.has(n), ix: MESH[n].geometry.index ? Uint32Array.from(MESH[n].geometry.index.array) : null })) });
     S.pele = new Promise(ok => {
       const receber = r => { S.pesos.set(r.id, r); (S.diag = S.diag || {})[r.id] = r.diag; S.prog = r.prog; if (S.onProg) S.onProg(r.prog); };
       const fim = () => { S.peleOk = true; S.onProg = null; ok(); };
@@ -1285,6 +1341,13 @@ vec3 fibRot(vec3 v, vec3 ax, float sn, float cs) { return v * cs + cross(ax, v) 
       const eixoPr = S.Uh[l].clone().sub(S.Rh[l]).normalize();   // pronação: o rádio gira em volta da ulna (da cabeça do rádio à cabeça da ulna)
       const Mr = Mul.clone().multiply(tra(S.Rh[l])).multiply(new M4().makeRotationAxis(eixoPr, -sg * v('pron') * RAD)).multiply(neg(S.Rh[l]));
       M['umero' + l] = Mu; M['ulna' + l] = Mul; M['radio' + l] = Mr; M['mao' + l] = Mr.clone().multiply(em(S.Wr[l], rX(-v('punF')).multiply(rZ(-sg * v('punD')))));
+      const Dd = S.dedM[l]; if (Dd) {   // dedos: MCF, IFP e IFD dobram juntas; o polegar fecha por cima
+        const pg = Math.max(0, Math.min(1, v('pega'))), Rax = (p, ax, a) => em(p, new M4().makeRotationAxis(ax, a * RAD));
+        M['fp' + l] = M['mao' + l].clone().multiply(Rax(Dd.mcf, Dd.ax, Dd.sn * 72 * pg));
+        M['fm' + l] = M['fp' + l].clone().multiply(Rax(Dd.ifp, Dd.ax, Dd.sn * 92 * pg));
+        M['fd' + l] = M['fm' + l].clone().multiply(Rax(Dd.ifd, Dd.ax, Dd.sn * 48 * pg));
+        M['po' + l] = Dd.pol ? M['mao' + l].clone().multiply(Rax(Dd.pol, Dd.tax, Dd.tsn * 55 * pg)) : M['mao' + l].clone();
+      }
       const sc = S.sc[l], sc2 = campoPt(sc), ac2 = S.ac[l].clone().applyMatrix4(Me);
       const q = new THREE.Quaternion().setFromUnitVectors(S.ac[l].clone().sub(sc).normalize(), ac2.sub(sc2).normalize());
       M['cla' + l] = tra(sc2).multiply(new M4().makeRotationFromQuaternion(q)).multiply(neg(sc));
@@ -1376,7 +1439,15 @@ vec3 fibRot(vec3 v, vec3 ax, float sn, float cs) { return v * cs + cross(ax, v) 
   const _r = new V3();
   function rotulos() {
     const el = $('rot'); if (!S.rot || el.dataset.de !== 'pose') return;
-    S.rot.forEach((r, i) => { const s = el.children[i]; if (!s) return; _r.copy(r.p).project(cam); s.style.left = ((_r.x + 1) / 2 * innerWidth + (r.esq ? -12 : 12)) + 'px'; s.style.top = ((1 - _r.y) / 2 * innerHeight) + 'px'; s.style.transform = r.esq ? 'translate(-100%,-50%)' : 'translate(0,-50%)'; });
+    let xa = 1e9, xb = -1e9;   // rótulos "fora": vão para a margem do corpo, ligados à articulação por uma linha fina
+    if (S.rot.some(r => r.fora) && S.mk) for (const m of Object.values(S.mk)) { if (!m || !m.p) continue; _r.copy(m.p).project(cam); const x = (_r.x + 1) / 2 * innerWidth; if (x < xa) xa = x; if (x > xb) xb = x; }
+    S.rot.forEach((r, i) => {
+      const s = el.children[i]; if (!s) return; _r.copy(r.p).project(cam); const x = (_r.x + 1) / 2 * innerWidth;
+      let xl = x + (r.esq ? -12 : 12), ln = 0;
+      if (r.fora && xa < 1e9) { const alvo = r.esq ? Math.min(xl, xa - 10) : Math.max(xl, xb + 10); ln = Math.abs(alvo - x); xl = alvo; }
+      s.style.left = xl + 'px'; s.style.top = ((1 - _r.y) / 2 * innerHeight) + 'px'; s.style.transform = r.esq ? 'translate(-100%,-50%)' : 'translate(0,-50%)';
+      s.classList.toggle('ln', ln > 14); s.classList.toggle('lnE', !!r.esq); s.style.setProperty('--ln', ln + 'px');
+    });
   }
   function leituraHTML() {
     const L = S.leit; if (!L) return ''; let h = '';
@@ -1958,7 +2029,7 @@ const lerL = (o, k) => (o[k] ?? ITENS_L[k].it[4]);
 function defLivre(src = LV) {
   const L = { d: {}, e: {} }, c = src.c;
   for (const l of ['d', 'e']) for (const [k] of Object.entries(zeroLado())) { const it = ITENS_L[k].it, v = lerL(src[l], k); L[l][k] = it[9] ? it[9](v) : v; }
-  for (const l of ['d', 'e']) if (src[l].mtp) L[l].mtp = src[l].mtp;
+  for (const l of ['d', 'e']) { if (src[l].mtp) L[l].mtp = src[l].mtp; if (src[l].pega) L[l].pega = src[l].pega; }
   const v = k => lerL(c, k);
   return {
     mov: { L },
@@ -2301,9 +2372,9 @@ const bissec = (f, alvo, lo, hi) => { for (let i = 0; i < 36; i++) { const m = (
 // ----- exercícios -----
 // braços segurando a barra nas costas ou na frente (ângulos com o tronco na vertical; no agachamento, o ombro acompanha a inclinação do tronco)
 const BRACOS_S = {
-  alta: { ombF: 12, ombA: 24, ombR: -78, cot: 128, pron: -19, punF: 4 },
-  baixa: { ombF: 17, ombA: 15, ombR: -81, cot: 125, pron: -39, punF: -24 },
-  frontal: { ombF: 60, ombA: 0, ombR: -18, cot: 158, pron: -85, punF: -87 },
+  alta: { ombF: 12, ombA: 24, ombR: -78, cot: 128, pron: -19, punF: 4, pega: 0.9 },
+  baixa: { ombF: 17, ombA: 15, ombR: -81, cot: 125, pron: -39, punF: -24, pega: 0.9 },
+  frontal: { ombF: 60, ombA: 0, ombR: -18, cot: 158, pron: -85, punF: -87, pega: 0.45 },
 };
 // quanto da dorsiflexão disponível cada estilo usa: na barra baixa a canela fica mais vertical e o quadril vai mais para trás; na frontal o joelho avança até o limite
 const CANELA_S = { alta: 0.85, baixa: 0.65, frontal: 1 };
@@ -2347,7 +2418,7 @@ const EX_S = {
       const [f] = POSE.medir([simDef(p)], M => { const e = S.Co.d.clone().applyMatrix4(M.umerod), g = S.Wr.d.clone().add(_gp).applyMatrix4(M.maod); return Math.atan2(g.z - e.z, e.y - g.y) / RS; });
       return ((SIM.ant = SIM.ant || {})[ch] = f);
     },
-    bracos: (op, beta, cot) => { const pr = op.pegada === 'pronada'; return { ombF: -beta, ombA: pr ? 22 : 10, ombR: pr ? 8 : -8, cot, pron: pr ? 80 : -85, punF: 0 }; },
+    bracos: (op, beta, cot) => { const pr = op.pegada === 'pronada'; return { ombF: -beta, ombA: pr ? 22 : 10, ombR: pr ? 8 : -8, cot, pron: pr ? 80 : -85, punF: 0, pega: 0.9 }; },
     pose(k, op) {
       const B = simBase(), u = op.tronco, mb = op.massa, s = 4, f0 = this.repouso(op), ch = [op.tronco, op.pegada].join('|');
       const q0 = cadeia(s, 0, u), Sh0 = q0.T(B.Sh), n = { y: -Math.sin(u * RS), z: Math.cos(u * RS) };
@@ -2372,7 +2443,7 @@ const PROX_S = ['Puxada (pronada, supinada e triângulo)', 'Remada baixa e caval
 function simDef(p) { const d = defLivre({ d: p.L.d, e: p.L.e, c: p.c || {} }); d.mov.fixarPe = true; return d; }
 
 // ----- medida no corpo 3D: centros de massa, momentos e braços de momento -----
-const _gp = new THREE.Vector3(0, -0.075, 0.012);   // centro da pegada, na mão
+const _gp = new THREE.Vector3(0, -0.065, 0.045);   // centro da pegada: dentro do gancho formado pelos dedos fechados
 function simMedir(M, ex, op) {
   const S = POSE.S, P = (v, sg) => v.clone().applyMatrix4(M[sg] || M.pelve), mb = op.massa;
   const Hm = S.H.d.clone().add(S.H.e).multiplyScalar(0.5), L5 = S.piv[0], or = S.mk.ore_d.r.clone().add(S.mk.ore_e.r).multiplyScalar(0.5);
@@ -2459,7 +2530,7 @@ function simRotulos(m) {
   for (const j of ex.jun) {
     const P = m.J[j], dz = m.d[j], t = Math.abs(m.tau[j]); if (t < 0.12 * mx) continue;   // sem rótulo para torques pequenos (a alavanca continua desenhada)
     // no celular: só o número, ao lado da articulação e do lado oposto da alavanca (a cor identifica a articulação)
-    out.push(CEL() ? { p: P.clone().add(new THREE.Vector3(0, j === 'lom' ? 0.045 : j === 'qua' ? -0.02 : 0, 0)), t: `${f1(t, 0)} N·m`, c: JS[j].cor, esq: dz > 0 } : { p: new THREE.Vector3(P.x, P.y, P.z + dz), t: `${JS[j].n} ${f1(t, 0)} N·m · ${f1(Math.abs(dz) * 100, 0)} cm`, c: JS[j].cor, esq: dz < 0 });
+    out.push(CEL() ? { p: P.clone().add(new THREE.Vector3(0, j === 'lom' ? 0.045 : j === 'qua' ? -0.02 : 0, 0)), t: `${f1(t, 0)} N·m`, c: JS[j].cor, esq: dz > 0, fora: true } : { p: new THREE.Vector3(P.x, P.y, P.z + dz), t: `${JS[j].n} ${f1(t, 0)} N·m · ${f1(Math.abs(dz) * 100, 0)} cm`, c: JS[j].cor, esq: dz < 0 });
   }
   return out;
 }

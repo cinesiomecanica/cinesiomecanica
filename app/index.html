@@ -201,6 +201,8 @@ html.cel .p-b input[type=range]{height:34px}html.cel .seg button,html.cel .acoes
 html.cel .lista button{padding:12px 2px;font-size:15px}html.cel .lv summary{padding:14px 12px}
 html.cel .movbar{top:calc(104px + env(safe-area-inset-top))!important;bottom:auto}
 html.cel #rot span{font-size:11.5px}
+#rot span.ln::before{content:'';position:absolute;top:50%;width:var(--ln);height:1px;background:currentColor;opacity:.55;left:100%}
+#rot span.ln:not(.lnE)::before{left:auto;right:100%}
 @media(min-width:700px){html.cel .painel,html.cel .tabbar{left:50%;right:auto;width:min(620px,100vw);transform:translateX(-50%)}html.cel .painel{transform:translate(-50%,calc(100% + 80px))}html.cel .painel.on{transform:translateX(-50%)}}
 .p-b a{color:var(--ac);text-underline-offset:2px}
 /* ===== modo aula: para projetor, TV ou notebook espelhado ===== */
