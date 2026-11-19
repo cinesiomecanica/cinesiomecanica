@@ -32,10 +32,16 @@ renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.A
 const scene = new THREE.Scene(); renderer.setClearColor(0x000000, 0);   // o fundo vem do CSS (gradiente + malha)
 const cam = new THREE.PerspectiveCamera(32, 1, 0.02, 30);
 const ctl = new OrbitControls(cam, canvas); ctl.enableDamping = true; ctl.dampingFactor = 0.08; ctl.minDistance = 0.25; ctl.maxDistance = 12; ctl.zoomSpeed = 0.9;
-scene.add(new THREE.HemisphereLight('#dfefff', '#20262e', 1.4));
+const hemi = new THREE.HemisphereLight('#dfefff', '#20262e', 1.4); scene.add(hemi);
 const sol = new THREE.DirectionalLight('#ffffff', 2.2); sol.position.set(1.5, 3, 2.5); scene.add(sol);
 const rim = new THREE.DirectionalLight('#7fe9ff', 1.1); rim.position.set(-2, 2, -2.5); scene.add(rim);
 const cam_l = new THREE.DirectionalLight('#ffffff', 0.6); cam.add(cam_l); scene.add(cam);
+// luz ambiente de estúdio (reflexos suaves e volume nos músculos): mapa de ambiente gerado na própria GPU, sem download
+import('three/addons/environments/RoomEnvironment.js').then(({ RoomEnvironment }) => {
+  if (/[?&]env=0/.test(location.search)) return;
+  const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; pm.dispose();
+  const q = new URLSearchParams(location.search); scene.environmentIntensity = +(q.get('envI') || 0.25); hemi.intensity = +(q.get('hemi') || 0.5); sujar();   // o ambiente substitui parte da luz difusa
+}).catch(() => {});
 // piso sutil
 const grid = new THREE.GridHelper(4, 40, '#3a4a7a', '#1c2545'); grid.material.transparent = true; grid.material.opacity = 0.6; scene.add(grid);
 let painelAberto = false;
@@ -956,9 +962,10 @@ function* pesosGen(d) {
     // músculos em leque (ombro, quadril, tronco → membro): cada vértice vira um ponto de uma "fibra" que liga a origem (fixa no osso de origem)
     // ao tendão (no osso de inserção). A GPU estica a fibra em linha reta, sem dobras nem abas.
     const pq = parMap.get(sA + '|' + sB);
-    if (sB > 0 && sA !== sB && (modo === 'misto' || (modo === 'eixo' && pq && (pq.ombro || pq.quad))) && info[sB].c !== '*') {
+    if (sB > 0 && sA !== sB && (modo === 'misto' || (modo === 'eixo' && pq && (pq.ombro || pq.quad))) && (info[sB].c !== '*' || /^Gluteus maximus/.test(id))) {   // glúteo máximo: fibras da pelve ao fêmur, enroladas em volta do quadril
       let sI = sB, ptI = ptB, inv = false;
-      if (modo === 'eixo' && info[sA].n > info[sB].n) { sI = sA; ptI = ptA; inv = true; }
+      const nv = s => info[s].t === 'membro' ? info[s].n : -1;   // tronco/pelve conta como o osso mais proximal
+      if (modo === 'eixo' && nv(sA) > nv(sB)) { sI = sA; ptI = ptA; inv = true; }
       const cI = info[sI].c, nI = info[sI].n;
       livre.fill(0); info.forEach((f, s) => { if (f.t === 'tronco' || f.c === '*' || (modo === 'eixo' && f.c === cI && f.n < nI)) livre[s] = 1; });   // origem: tronco/pelve (e, no eixo, o osso de cima da cadeia)
       const dSeg = (x, y, z, sg) => { const ix = Math.floor(x / cel), iy = Math.floor(y / cel), iz = Math.floor(z / cel); let b = 1e9;
@@ -1010,7 +1017,7 @@ function* pesosGen(d) {
             if (L2 > 1e-6) fib.s[i] = Math.max(-0.2, Math.min(1.2, ((w[3 * i] - ox) * cx + (w[3 * i + 1] - oy) * cy + (w[3 * i + 2] - oz) * cz) / L2)); }
         }
         modo += '+leque';
-        if (pq && /deltoid|spinatus|Teres minor|Subscapularis/i.test(id)) {
+        if (pq && /deltoid|spinatus|Teres minor|Subscapularis|Gluteus maximus/i.test(id)) {
           // capa da cabeça do úmero: em vez de esticar em linha reta, gira em volta do centro da cabeça (ossos intermediários), fração pela fibra
           for (let i = 0; i < n; i++) { if (inI[i]) continue; const f = suave(0.0, 0.85, Math.max(0, fib.s[i])); nc = 0; cadeia(pq, pq.a === sI ? 1 - f : f, 1, w[3 * i], w[3 * i + 1], w[3 * i + 2], false);
             let tot = 0; idx.fill(0, 4 * i, 4 * i + 4); wt.fill(0, 4 * i, 4 * i + 4);
@@ -3157,6 +3164,33 @@ marcarTab();
 const ajustarCel = () => { $('q').placeholder = CEL() ? 'Buscar…' : 'Buscar osso ou músculo'; if (CEL() && !painelAberto) enquadrarP('corpo', 'ant'); };
 addEventListener('versao', ajustarCel); ajustarCel();
 
+/* ---------- oclusão de ambiente (GTAO): sombras de contato entre músculos, ossos e dobras ---------- */
+// carregada só no computador (no celular pesa demais); a profundidade vem da própria imagem, então funciona também
+// com as fibras deformadas na GPU e com os músculos semitransparentes
+const AO = { on: false, comp: null };
+async function prepararAO() {
+  if (AO.comp || CEL() || /[?&]ao=0/.test(location.search)) return;
+  try {
+    const [{ EffectComposer }, { RenderPass }, { GTAOPass }, { OutputPass }] = await Promise.all(['EffectComposer', 'RenderPass', 'GTAOPass', 'OutputPass'].map(n => import(`three/addons/postprocessing/${n}.js`)));
+    const w = innerWidth, h = innerHeight, pr = renderer.getPixelRatio();
+    const dt = new THREE.DepthTexture(w * pr, h * pr); dt.type = THREE.UnsignedIntType;
+    const rt = new THREE.WebGLRenderTarget(w * pr, h * pr, { type: THREE.HalfFloatType, samples: 4, depthTexture: dt });
+    const comp = new EffectComposer(renderer, rt); comp.setPixelRatio(pr); comp.setSize(w, h);
+    const rp = new RenderPass(scene, cam); rp.clearAlpha = 0; comp.addPass(rp);
+    const ao = new GTAOPass(scene, cam, w * pr, h * pr, { depthTexture: dt });   // a oclusão é calculada em meia resolução (4× mais leve) e suavizada
+    const s0 = ao.setSize.bind(ao); ao.setSize = (a, b) => s0(Math.ceil(a / 2), Math.ceil(b / 2)); ao.setSize(w * pr, h * pr);
+    ao.output = GTAOPass.OUTPUT.Default; ao.blendIntensity = 1;
+    ao.updateGtaoMaterial({ radius: 0.06, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
+    ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
+    comp.addPass(ao); comp.addPass(new OutputPass());
+    AO.comp = comp; AO.ao = ao; AO.on = true;
+    addEventListener('resize', () => { comp.setPixelRatio(renderer.getPixelRatio()); comp.setSize(innerWidth, innerHeight); sujar(); });
+    addEventListener('versao', () => { AO.on = !CEL(); sujar(); });
+    sujar();
+  } catch (e) { console.warn('AO indisponível', e); AO.comp = null; }
+}
+prepararAO();
+
 /* ---------- laço ---------- */
 const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 renderer.setAnimationLoop(() => {
@@ -3167,7 +3201,7 @@ renderer.setAnimationLoop(() => {
   if (!voando && !posando && suja <= 0) return;
   if (suja > 0) suja--;
   if (MOV.on) movQuadro(); if (AG.on) agQuadro(); if (POSE.ativo) POSE.rotulos();
-  renderer.render(scene, cam);
+  if (AO.comp && AO.on) AO.comp.render(); else renderer.render(scene, cam);
 });
 // painel no celular: tocar no cabeçalho recolhe ou expande a folha
 $('painel').querySelector('.p-h').addEventListener('click', e => { if (innerWidth < 900 && !CEL() && !e.target.closest('#pX')) $('painel').classList.toggle('min'); });
