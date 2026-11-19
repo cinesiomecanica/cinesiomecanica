@@ -68,6 +68,27 @@ async function liberar(email: string, plano: string, ate: Date, ref: string, obs
   return novo;
 }
 
+
+// Pix pré-pago (função "pix"): soma 1, 6 ou 12 meses ao acesso, a partir de hoje ou do fim do acesso atual.
+const PIX: Record<string, { meses: number; preco: number }> = { mensal: { meses: 1, preco: 15 }, semestral: { meses: 6, preco: 60 }, anual: { meses: 12, preco: 100 } };
+async function trataPix(pg: any) {
+  const [, plano, email] = String(pg.external_reference).split('|');
+  const cfg = PIX[plano];
+  if (!cfg || !email) return `pix ${pg.id}: referência inválida`;
+  if (Number(pg.transaction_amount) + 0.001 < cfg.preco) return `pix ${pg.id}: valor ${pg.transaction_amount} menor que o do plano`;
+  const ref = 'pix:' + pg.id;
+  const { data: atual } = await db.from('assinantes').select('valido_ate, ref').eq('email', email).maybeSingle();
+  if (atual?.ref === ref) return `pix ${pg.id}: já liberado`; // o Mercado Pago avisa mais de uma vez
+  const base = new Date(Math.max(Date.now(), atual ? new Date(atual.valido_ate).getTime() : 0));
+  base.setMonth(base.getMonth() + cfg.meses);
+  const { error } = await db.from('assinantes').upsert({
+    email, plano: plano + '-pix', valido_ate: base.toISOString(), origem: 'mercadopago-pix', ref,
+    obs: `Pix · ${plano} · R$ ${pg.transaction_amount}`, atualizado_em: new Date().toISOString(),
+  });
+  if (error) throw error;
+  return `ok pix ${email} até ${base.toISOString()}`;
+}
+
 async function trataAssinatura(preId: string, pagoAgora = false) {
   const pre = await mp('/preapproval/' + preId);
   if (pre.status !== 'authorized' && !pagoAgora) return `assinatura ${preId}: ${pre.status}`;
@@ -88,7 +109,8 @@ Deno.serve(async (req) => {
   const tipo = corpo.type ?? url.searchParams.get('type') ?? url.searchParams.get('topic') ?? '';
   const id = String(corpo?.data?.id ?? url.searchParams.get('data.id') ?? url.searchParams.get('id') ?? '');
 
-  if (!(await assinaturaValida(req, url.searchParams.get('data.id') ?? id))) {
+  // avisos de pagamento são conferidos direto na API do Mercado Pago (com o nosso token), então um aviso falso não libera nada
+  if (tipo !== 'payment' && !(await assinaturaValida(req, url.searchParams.get('data.id') ?? id))) {
     console.warn('assinatura inválida', tipo, id);
     return new Response('assinatura inválida', { status: 401 });
   }
@@ -104,7 +126,8 @@ Deno.serve(async (req) => {
     } else if (tipo === 'payment') {
       const pg = await mp('/v1/payments/' + id);
       const pre = pg?.metadata?.preapproval_id ?? pg?.point_of_interaction?.transaction_data?.subscription_id;
-      if (pg.status === 'approved' && pre) msg = await trataAssinatura(pre, true);
+      if (pg.status === 'approved' && String(pg.external_reference ?? '').startsWith('pix|')) msg = await trataPix(pg);
+      else if (pg.status === 'approved' && pre) msg = await trataAssinatura(pre, true);
       else msg = `pagamento ${id}: ${pg.status}`;
     }
     console.log(tipo, id, msg);

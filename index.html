@@ -65,6 +65,30 @@ h2.d{font-size:clamp(34px,6.4vw,58px);margin:18px 0 14px}
 .btn.sec:hover{border-color:var(--ci);color:var(--ci)}
 .btn.sm{padding:11px 18px;font-size:15px}
 .btn svg{flex:none}
+.pixb{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;margin-top:10px;padding:13px 18px;border-radius:999px;border:1.5px solid #32bcad66;background:#32bcad14;color:#5fe0d2;font-weight:700;font-size:15.5px;transition:background .2s,border-color .2s}
+.pixb:hover{background:#32bcad26;border-color:#32bcad}
+.pixb small{font-weight:500;color:var(--ink2);font-size:13.5px}
+.pixm{position:fixed;inset:0;z-index:90;display:none;align-items:flex-end;justify-content:center;background:#05080fcc;backdrop-filter:blur(6px);padding:16px}
+.pixm.on{display:flex}
+@media(min-width:640px){.pixm{align-items:center}}
+.pixm .cx{width:100%;max-width:440px;background:var(--card);border:1.5px solid var(--line);border-radius:26px;padding:28px 24px 22px;box-shadow:0 30px 80px #000a;position:relative}
+.pixm h3{font-family:var(--fd);font-weight:800;font-size:26px;letter-spacing:-.03em;line-height:1.1;margin-bottom:6px}
+.pixm .vl{display:flex;align-items:baseline;gap:6px;margin:10px 0 16px;color:var(--ink2);font-size:15px}
+.pixm .vl b{font-family:var(--fd);font-size:34px;color:var(--ink);letter-spacing:-.03em}
+.pixm label{display:block;font-weight:700;font-size:14.5px;margin-bottom:6px}
+.pixm input{width:100%;font:inherit;font-size:17px;padding:14px 16px;border-radius:14px;border:1.5px solid var(--line);background:#0c1222;color:var(--ink);outline:none}
+.pixm input:focus{border-color:#32bcad}
+.pixm .dica{font-size:13.5px;color:var(--ink2);margin:8px 0 16px;line-height:1.45}
+.pixm .dica b{color:var(--ink)}
+.pixm .ir{width:100%;background:linear-gradient(180deg,#5fe0d2,#32bcad);color:#04211e;box-shadow:0 10px 30px #32bcad50}
+.pixm .ir[disabled]{opacity:.6;cursor:wait}
+.pixm .x{position:absolute;top:14px;right:16px;width:36px;height:36px;border-radius:50%;color:var(--ink2);font-size:22px}
+.pixm .x:hover{background:#ffffff10;color:var(--ink)}
+.pixm .er{color:#ff8a7a;font-size:14px;min-height:1.2em;margin-top:10px}
+.pixm ul{list-style:none;margin:14px 0 0;display:grid;gap:6px;font-size:13.5px;color:var(--ink2)}
+.pixm ul li{display:flex;gap:8px;align-items:flex-start}
+.pixm ul svg{flex:none;margin-top:2px;color:#5fe0d2}
+
 .pulse{animation:pulse 2.6s infinite}
 @keyframes pulse{0%,100%{box-shadow:0 10px 34px #ffb93850,0 0 0 0 #ffb93866}50%{box-shadow:0 10px 34px #ffb93850,0 0 0 12px #ffb93800}}
 
@@ -458,6 +482,7 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
    <div class="dia ci"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>R$ 0,50 por dia</div>
    <ul class="ft"></ul>
    <a class="btn pri" href="#" data-plano="mensal">Assinar por R$ 15/mês</a>
+   <button class="pixb" type="button" data-pix="mensal"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2.8 21.2 12 12 21.2 2.8 12z"/><path d="M8.2 12 12 8.2 15.8 12 12 15.8z" fill="currentColor" stroke="none"/></svg>Pagar com Pix <small>· 1 mês</small></button>
    <a class="up" href="#pl-sem">Quer pagar menos? <b>No semestral sai R$ 10/mês</b></a>
   </div>
   <div class="pl rv" id="pl-sem">
@@ -467,6 +492,7 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
    <div class="eq">Equivale a <b>R$ 10/mês</b><br><s>R$ 90</s> pagando mês a mês</div>
    <ul class="ft"></ul>
    <a class="btn sec" href="#" data-plano="semestral">Assinar o semestral</a>
+   <button class="pixb" type="button" data-pix="semestral"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2.8 21.2 12 12 21.2 2.8 12z"/><path d="M8.2 12 12 8.2 15.8 12 12 15.8z" fill="currentColor" stroke="none"/></svg>Pagar com Pix <small>· 6 meses</small></button>
    <a class="up" href="#pl-anual">E fica ainda melhor: <b>no anual sai R$ 8,33/mês</b></a>
   </div>
   <div class="pl top rv" id="pl-anual">
@@ -477,9 +503,10 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
    <div class="dia"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Menos de R$ 0,28 por dia</div>
    <ul class="ft"></ul>
    <a class="btn pri pulse" href="#" data-plano="anual">Quero o plano anual</a>
+   <button class="pixb" type="button" data-pix="anual"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2.8 21.2 12 12 21.2 2.8 12z"/><path d="M8.2 12 12 8.2 15.8 12 12 15.8z" fill="currentColor" stroke="none"/></svg>Pagar com Pix <small>· 12 meses</small></button>
   </div>
  </div>
- <p class="rv center" style="margin-top:26px;color:var(--ink2);font-size:15.5px">Depois de pagar, crie sua conta em <a href="/entrar/" style="color:var(--au);font-weight:700">Entrar</a> usando <b style="color:var(--ink)">o mesmo e-mail do pagamento</b>. O acesso é liberado automaticamente.</p>
+ <p class="rv center" style="margin-top:26px;color:var(--ink2);font-size:15.5px"><b style="color:var(--ink)">No cartão</b>, a assinatura se renova sozinha. <b style="color:var(--ink)">No Pix</b>, você paga o período de uma vez e renova quando quiser.<br>Depois de pagar, crie sua conta em <a href="/entrar/" style="color:var(--au);font-weight:700">Entrar</a> usando <b style="color:var(--ink)">o mesmo e-mail do pagamento</b>. O acesso é liberado automaticamente.</p>
  <div class="pgar rv"><span><svg width="16" height="16"><use href="#esc"/></svg>Garantia de 7 dias</span><span><svg width="16" height="16"><use href="#ok"/></svg>Pagamento seguro</span><span><svg width="16" height="16"><use href="#ok"/></svg>Celular e computador</span><span><svg width="16" height="16"><use href="#ok"/></svg>Atualizações incluídas</span></div>
 </div></section>
 
@@ -517,7 +544,7 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
   <details class="rv"><summary>Preciso instalar alguma coisa?</summary><p>Não. A Cinesiomecânica abre direto no navegador, no celular ou no computador. Na primeira visita você escolhe a versão que vai usar e pode trocar quando quiser.</p></details>
   <details class="rv"><summary>Funciona no meu celular?</summary><p>Funciona nos celulares atuais, com o navegador atualizado (Chrome ou Safari). A versão celular foi feita para ser leve: tem abas embaixo, folha de informações que você arrasta e menos pixels por quadro para economizar bateria.</p></details>
   <details class="rv"><summary>Como recebo o acesso?</summary><p>Depois que o pagamento é confirmado, o e-mail usado na compra é liberado automaticamente. É só entrar em <a href="/entrar/" style="color:var(--au)">Entrar</a> e criar sua conta com esse mesmo e-mail. Se já tiver conta, basta entrar.</p></details>
-  <details class="rv"><summary>Quais são as formas de pagamento?</summary><p>Cartão de crédito ou saldo da sua conta Mercado Pago, no checkout seguro do Mercado Pago. A cobrança se renova sozinha no fim de cada período, e você pode cancelar quando quiser.</p></details>
+  <details class="rv"><summary>Quais são as formas de pagamento?</summary><p><b>Cartão de crédito:</b> assinatura no checkout seguro do Mercado Pago, que se renova sozinha no fim de cada período. Você pode cancelar quando quiser.<br><b>Pix:</b> você paga 1 mês (R$ 15), 6 meses (R$ 60) ou 12 meses (R$ 100) de uma vez, também pelo Mercado Pago. O acesso é liberado assim que o Pix cai e vale até o fim do período, sem cobrança automática. Para continuar, é só pagar outro Pix, e o tempo novo é somado ao que ainda falta.</p></details>
   <details class="rv"><summary>Sou professor. Posso usar nas minhas aulas?</summary><p>Pode, e foi pensado para isso. Com a sua assinatura, você projeta o atlas para a turma no <b>Modo aula</b> (tela cheia, letras maiores e ponteiro). Para turmas, escolas e faculdades que queiram dar acesso a todos os alunos, <a href="mailto:contato@cinesiomecanica.com.br?subject=Cinesiomec%C3%A2nica%20para%20turmas%20e%20institui%C3%A7%C3%B5es" style="color:var(--au)">fale com a gente</a>.</p></details>
   <details class="rv"><summary>O que é o simulador de exercícios?</summary><p>É uma parte do atlas em que o corpo 3D faz o exercício com carga. Ele mostra o torque em cada articulação, o braço de momento, o esforço estimado de cada músculo e se o músculo está alongado ou encurtado, em todas as fases do movimento. Hoje tem o agachamento (barra alta, barra baixa e frontal) e a remada curvada. Puxadas, levantamento terra, stiff, afundo, elevação pélvica e supino vêm nas próximas atualizações. Os valores são estimativas de um modelo biomecânico para estudo, não medidas de laboratório.</p></details>
   <details class="rv"><summary>Posso cancelar?</summary><p>Pode, quando quiser. E se pedir nos primeiros 7 dias, você recebe 100% do valor de volta.</p></details>
@@ -543,6 +570,26 @@ footer .lks{display:flex;flex-wrap:wrap;gap:8px 20px}
  <p>Modelos 3D: <a href="https://www.z-anatomy.com/" target="_blank" rel="noopener" style="text-decoration:underline">Z-Anatomy</a> (CC BY-SA 4.0), derivados do BodyParts3D (DBCLS). Textos, fichas e design: © 2026 Cinesiomecânica.</p>
 </div></footer>
 
+
+<div class="pixm" id="pixm" role="dialog" aria-modal="true" aria-labelledby="pixT">
+ <form class="cx" id="pixF" novalidate>
+  <button class="x" type="button" id="pixX" aria-label="Fechar">×</button>
+  <span class="kick" style="color:#5fe0d2;border-color:#32bcad55;background:#32bcad12"><i></i>Pagamento com Pix</span>
+  <h3 id="pixT" style="margin-top:14px">Plano <span id="pixN">Mensal</span></h3>
+  <div class="vl"><b id="pixV">R$ 15</b><span id="pixP">por 1 mês de acesso</span></div>
+  <label for="pixE">Seu e-mail</label>
+  <input id="pixE" type="email" autocomplete="email" inputmode="email" placeholder="voce@email.com" required>
+  <p class="dica">Use <b>o mesmo e-mail</b> com que você vai criar sua conta. É por ele que o acesso é liberado.</p>
+  <button class="btn ir" type="submit" id="pixG">Gerar o Pix</button>
+  <div class="er" id="pixErr"></div>
+  <ul>
+   <li><svg width="16" height="16"><use href="#ok"/></svg>Você paga no checkout seguro do Mercado Pago, com QR Code ou Pix copia e cola.</li>
+   <li><svg width="16" height="16"><use href="#ok"/></svg>O acesso é liberado assim que o Pix é aprovado, sem cobrança automática depois.</li>
+   <li><svg width="16" height="16"><use href="#ok"/></svg>Garantia de 7 dias: se não gostar, devolvemos 100%.</li>
+  </ul>
+ </form>
+</div>
+
 <div class="fixa" id="fixa"><div><small>Acesso a tudo · cancele quando quiser</small><b><em>R$ 15</em>/mês</b></div><a class="btn pri sm" href="#planos">Assinar</a></div>
 
 <script>
@@ -557,6 +604,40 @@ document.querySelectorAll('[data-plano]').forEach(b => {
   if (link) { b.href = link; b.target = '_blank'; b.rel = 'noopener'; }
   else b.href = `mailto:${CONTATO}?subject=${encodeURIComponent('Quero o plano ' + NOMES[p] + ' da Cinesiomecânica')}&body=${encodeURIComponent('Olá! Quero assinar o plano ' + NOMES[p] + '.')}`;
 });
+
+
+// Pix pré-pago: gera a cobrança na função "pix" do Supabase e abre o checkout do Mercado Pago
+const PIX_URL = 'https://aerupdmyhpqyjddfhzlu.supabase.co/functions/v1/pix';
+const PIX_INFO = { mensal: ['Mensal', 'R$ 15', 'por 1 mês de acesso'], semestral: ['Semestral', 'R$ 60', 'por 6 meses de acesso'], anual: ['Anual', 'R$ 100', 'por 12 meses de acesso'] };
+const pixm = document.getElementById('pixm'), pixE = document.getElementById('pixE'), pixG = document.getElementById('pixG'), pixErr = document.getElementById('pixErr');
+let pixPlano = 'mensal';
+const pixFecha = () => pixm.classList.remove('on');
+document.querySelectorAll('[data-pix]').forEach(b => b.onclick = () => {
+  pixPlano = b.dataset.pix; const [n, v, p] = PIX_INFO[pixPlano];
+  document.getElementById('pixN').textContent = n; document.getElementById('pixV').textContent = v; document.getElementById('pixP').textContent = p;
+  try { pixE.value = localStorage.getItem('cm_email') || pixE.value; } catch (_) { }
+  pixErr.textContent = ''; pixG.disabled = false; pixG.textContent = 'Gerar o Pix';
+  pixm.classList.add('on'); setTimeout(() => pixE.focus(), 60);
+});
+document.getElementById('pixX').onclick = pixFecha;
+pixm.addEventListener('click', e => { if (e.target === pixm) pixFecha(); });
+addEventListener('keydown', e => { if (e.key === 'Escape') pixFecha(); });
+document.getElementById('pixF').onsubmit = async e => {
+  e.preventDefault();
+  const email = pixE.value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { pixErr.textContent = 'Digite um e-mail válido.'; pixE.focus(); return; }
+  try { localStorage.setItem('cm_email', email); } catch (_) { }
+  pixErr.textContent = ''; pixG.disabled = true; pixG.textContent = 'Gerando o Pix…';
+  try {
+    const { SUPABASE_ANON_KEY } = await import('/conta/config.js');
+    const r = await fetch(PIX_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify({ email, plano: pixPlano }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.url) throw new Error(d.erro || 'Não foi possível gerar o Pix agora.');
+    location.href = d.url;
+  } catch (err) {
+    pixErr.textContent = (err && err.message) || 'Não foi possível gerar o Pix agora.'; pixG.disabled = false; pixG.textContent = 'Tentar de novo';
+  }
+};
 
 // revelar ao rolar
 const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .14, rootMargin: '0px 0px -40px 0px' });

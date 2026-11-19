@@ -171,7 +171,10 @@ else {
   await depoisDoLogin();
   if (P.get('pago') === '1' && !(await usuario())) {
     trocaAba('criar');
-    aviso($('msg'), 'Assinatura recebida! Agora crie sua conta com o mesmo e-mail que você usou no Mercado Pago. Se já tem conta, use a aba Entrar.', 'ok');
+    if (P.get('email')) $('email').value = P.get('email');
+    aviso($('msg'), P.get('pix') === '1'
+      ? 'Pix recebido! Assim que o Mercado Pago aprovar (costuma ser na hora), seu acesso fica liberado. Crie sua conta com o mesmo e-mail que você digitou no Pix. Se já tem conta, use a aba Entrar.'
+      : 'Assinatura recebida! Agora crie sua conta com o mesmo e-mail que você usou no Mercado Pago. Se já tem conta, use a aba Entrar.', 'ok');
   }
 }
 </script>
